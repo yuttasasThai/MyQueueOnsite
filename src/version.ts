@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 8 | Version: 1.2.3 | Modified: 2026-11-12
+// File: /src/version.ts | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.2.3';
-export const APP_REVISION = 'Rev 8';
+export const APP_VERSION = '1.2.5';
+export const APP_REVISION = 'Rev 10';
 export const APP_RELEASE_DATE = '2026-11-12';
 
 export interface RevisionRecord {
@@ -14,6 +14,37 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 10',
+    version: '1.2.5',
+    date: '2026-11-12',
+    description:
+      'เพิ่มปุ่มแอดมิน (Admin) ที่แถบเมนูด้านบนและในการ์ดหน้าแรกแดชบอร์ด พร้อมระบบกรอกรหัสผ่าน 099-225-6601 แบบซ่อนรหัสผ่านเป็นจุด (Password dots masking) โดยไม่แสดงตัวเลขบนช่องพิมพ์และไม่เขียนบอกรหัส เมื่อเข้าสู่ระบบแอดมินแล้วจะเปิดหน้า "สร้าง link user" ให้ทันที พร้อมแสดงแท็บเมนูสร้าง link user ให้แอดมินเข้าถึงได้อย่างชัดเจน',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/components/AdminPinModal.tsx',
+      'src/components/Navbar.tsx',
+      'src/components/HeroCover.tsx',
+      'src/components/Dashboard.tsx',
+      'src/services/storage.ts',
+      'src/App.tsx',
+      'package.json',
+    ],
+  },
+  {
+    revision: 'Rev 9',
+    version: '1.2.4',
+    date: '2026-11-12',
+    description:
+      'แก้ไขปัญหา Deploy ไม่ผ่านบน Vercel (npm error ERESOLVE esbuild conflict): ลบ esbuild ออกจาก devDependencies ใน package.json เพื่อแก้ peer conflict กับ vite, เพิ่มไฟล์ .npmrc (legacy-peer-deps=true) และ vercel.json สำหรับ Vercel build และ SPA routing',
+    modifiedFiles: [
+      'package.json',
+      '.npmrc',
+      'vercel.json',
+      'server.ts',
+      'src/version.ts',
+    ],
+  },
   {
     revision: 'Rev 8',
     version: '1.2.3',

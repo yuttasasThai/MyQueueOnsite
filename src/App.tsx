@@ -1,4 +1,4 @@
-// File: /src/App.tsx | Revision: Rev 7 | Version: 1.2.2 | Modified: 2026-11-11
+// File: /src/App.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
@@ -52,7 +52,7 @@ export default function App() {
   const [settings, setSettings] = useState<ShopSettings>(loadShopSettings);
   const [users, setUsers] = useState<UserAccount[]>(loadUsers);
   const [jobs, setJobs] = useState<RepairJob[]>(loadJobs);
-  const [auth, setAuth] = useState<AuthSession>(() => loadCurrentAuth() || { role: 'admin', userName: 'แอดมินเจ้าของร้าน' });
+  const [auth, setAuth] = useState<AuthSession>(() => loadCurrentAuth() || { role: 'user', userName: 'ช่างหน้างาน' });
 
   // Navigation tab
   const [currentTab, setCurrentTab] = useState<ViewTab>('dashboard');
@@ -488,6 +488,9 @@ export default function App() {
               setIsJobModalOpen(true);
             }}
             onClearAllJobs={handleClearAllJobs}
+            isAdmin={isAdmin}
+            onRequestAdminLogin={() => setIsAdminPinModalOpen(true)}
+            onNavigateToCreateLink={() => setCurrentTab('create_link')}
           />
         )}
 
@@ -657,7 +660,7 @@ export default function App() {
                 className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Lock className="w-3.5 h-3.5 text-amber-400" />
-                <span>เข้าสู่ระบบแอดมิน (ใส่รหัส 099-225-6601)</span>
+                <span>เข้าสู่ระบบแอดมิน</span>
               </button>
             </div>
           </div>
@@ -671,8 +674,13 @@ export default function App() {
         targetPassword="099-225-6601"
         onSuccess={() => {
           handleSwitchToAdmin();
+          setCurrentTab('create_link');
           setIsAdminPinModalOpen(false);
-          showLineToast('เข้าสู่ระบบแอดมินสำเร็จ', 'ยืนยันรหัสผ่านเรียบร้อย ยินดีต้อนรับแอดมิน', 'success');
+          showLineToast(
+            'เข้าสู่ระบบแอดมินสำเร็จ 🛡️',
+            'ยืนยันรหัสผ่านเรียบร้อย เปิดหน้า "สร้าง link user" ให้ทันที',
+            'success'
+          );
         }}
       />
 
