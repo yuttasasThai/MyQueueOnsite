@@ -1,0 +1,6 @@
+{
+  "name": "Repair Onsite Service - ระบบจัดตารางคิวงานซ่อมนอกสถานที่",
+  "description": "ระบบจัดการงานซ่อมนอกสถานที่ (Onsite Service) จัดตารางคิวงาน ติดตามสถานะงาน ข้อมูลลูกค้า พิกัดแผนที่ ระบบเตือนระยะประกัน และจัดการสิทธิ์ลิงก์ช่าง",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
