@@ -125,6 +125,8 @@ async function startServer() {
         'index.html',
         'README.md',
         'metadata.json',
+        '.npmrc',
+        'vercel.json',
       ];
 
       for (const rf of rootFiles) {
