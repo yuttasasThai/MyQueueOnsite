@@ -1,6 +1,17 @@
-// File: /src/components/HeroCover.tsx | Revision: Rev 8 | Version: 1.2.3 | Modified: 2026-11-12
+// File: /src/components/HeroCover.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
 import React, { useState } from 'react';
-import { Clock, ArrowRight, Wrench, Plus, RotateCcw, AlertTriangle, X, CheckCircle2 } from 'lucide-react';
+import {
+  Clock,
+  ArrowRight,
+  Wrench,
+  Plus,
+  RotateCcw,
+  AlertTriangle,
+  X,
+  CheckCircle2,
+  ShieldCheck,
+  Link as LinkIcon,
+} from 'lucide-react';
 import { RepairJob, ShopSettings } from '../types';
 import { APP_VERSION, APP_REVISION } from '../version';
 
@@ -13,6 +24,8 @@ interface HeroCoverProps {
   onOpenSettings?: () => void;
   onNavigateToDashboard?: () => void;
   onClearAllJobs?: () => void;
+  onRequestAdminLogin?: () => void;
+  onNavigateToCreateLink?: () => void;
 }
 
 export const HeroCover: React.FC<HeroCoverProps> = ({
@@ -21,6 +34,9 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
   onOpenNewJob,
   onNavigateToQueue,
   onClearAllJobs,
+  isAdmin = false,
+  onRequestAdminLogin,
+  onNavigateToCreateLink,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetSuccessNotice, setResetSuccessNotice] = useState(false);
@@ -191,6 +207,38 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
               <RotateCcw className="w-3 h-3 text-red-400" />
               <span>ล้างข้อมูลเก่า</span>
             </button>
+          )}
+        </div>
+
+        {/* Admin Quick Button / Status Bar */}
+        <div className="pt-2.5 mt-2 border-t border-slate-700/60 w-full flex items-center justify-center">
+          {!isAdmin ? (
+            <button
+              type="button"
+              onClick={onRequestAdminLogin}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-950 hover:bg-slate-900 text-amber-300 hover:text-amber-200 text-xs font-bold border border-amber-500/50 shadow-md hover:shadow-lg transition-all cursor-pointer hover:scale-105 active:scale-95"
+              title="กดเพื่อเข้าสู่ระบบแอดมิน (ใส่รหัสผ่าน)"
+            >
+              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <span>เข้าสู่ระบบแอดมิน (Admin)</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              <span className="text-[11px] text-emerald-300 flex items-center gap-1 font-semibold bg-emerald-950/70 border border-emerald-500/40 px-3 py-1 rounded-full">
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>สถานะ: แอดมิน (Admin)</span>
+              </span>
+              {onNavigateToCreateLink && (
+                <button
+                  type="button"
+                  onClick={onNavigateToCreateLink}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                >
+                  <LinkIcon className="w-3.5 h-3.5 text-white" />
+                  <span>หน้าสร้าง link user &rarr;</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

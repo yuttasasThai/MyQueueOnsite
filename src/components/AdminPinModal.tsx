@@ -1,4 +1,4 @@
-// File: /src/components/AdminPinModal.tsx | Revision: Rev 6 | Version: 1.2.1 | Modified: 2026-11-11
+// File: /src/components/AdminPinModal.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
 import React, { useState } from 'react';
 import { Lock, X, AlertCircle, ShieldCheck } from 'lucide-react';
 

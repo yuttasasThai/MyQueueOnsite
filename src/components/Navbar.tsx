@@ -1,4 +1,4 @@
-// File: /src/components/Navbar.tsx | Revision: Rev 7 | Version: 1.2.2 | Modified: 2026-11-11
+// File: /src/components/Navbar.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
 import React from 'react';
 import {
   Wrench,
@@ -182,7 +182,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
-            {/* Direct Admin Access Button when in User Mode (ใส่รหัส 099 2256601 แบบซ่อนรหัส) */}
+            {/* Direct Admin Access Button when in User Mode (ใส่รหัส 099-225-6601 แบบซ่อนรหัส) */}
             {!isAdmin && (
               <button
                 type="button"
@@ -193,11 +193,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onSwitchToAdmin();
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 shadow-xs transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-950 hover:bg-slate-800 text-white border border-amber-500/50 shadow-md hover:shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
                 title="กดเพื่อเข้าสู่ระบบแอดมิน (ใส่รหัสผ่าน)"
               >
                 <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="font-semibold">แอดมิน (Admin)</span>
+              </button>
+            )}
+
+            {/* Quick Link to Create User Link when already Admin */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => onTabChange('create_link')}
+                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                  currentTab === 'create_link'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                }`}
+                title="เปิดหน้าสร้าง link user"
+              >
+                <LinkIcon className="w-3.5 h-3.5" />
+                <span>สร้าง link user</span>
               </button>
             )}
 
@@ -264,6 +281,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                       {isAdmin && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">ปัจจุบัน</span>}
                     </button>
+
+                    {/* Exit Admin Mode Option (Switch back to user) */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          setShowUserDropdown(false);
+                          onSwitchToUser(users[0] || { id: 'usr_guest', name: 'ช่างหน้างาน' });
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 flex items-center gap-2 cursor-pointer font-medium"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                        <span>ออกจากโหมดแอดมิน (สลับเป็นผู้ใช้)</span>
+                      </button>
+                    )}
 
                     {users.map((u) => {
                       const uExpiry = checkUserLinkExpiry(u.expiresAt);
