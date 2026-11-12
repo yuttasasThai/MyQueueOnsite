@@ -1,0 +1,515 @@
+import React, { useState } from 'react';
+import {
+  X,
+  Phone,
+  MessageCircle,
+  Facebook,
+  MapPin,
+  Calendar,
+  Clock,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  Wrench,
+  Printer,
+  DollarSign,
+  User,
+  Camera,
+  Navigation,
+  Edit,
+  BellRing,
+  Send,
+  Copy,
+  Check,
+  RefreshCw,
+} from 'lucide-react';
+import { RepairJob, RepairStatus, ShopSettings } from '../types';
+import { getWarrantyStatus } from '../services/storage';
+import {
+  sendLineNotify,
+  formatStatusChangeNotification,
+  getLineShareUrl,
+  addNotificationLog,
+} from '../services/lineNotify';
+
+interface JobDetailModalProps {
+  job: RepairJob | null;
+  onClose: () => void;
+  onStatusChange: (jobId: string, status: RepairStatus) => void;
+  onUpdateActualCost: (jobId: string, actualCost: number) => void;
+  onEdit: (job: RepairJob) => void;
+  onPrint: (job: RepairJob) => void;
+  settings: ShopSettings;
+  isAdmin: boolean;
+}
+
+const STATUS_PROGRESSION: RepairStatus[] = [
+  'รับงาน',
+  'กำลังไป',
+  'กำลังซ่อม',
+  'ซ่อมแล้ว',
+  'ปิดงาน',
+];
+
+export const JobDetailModal: React.FC<JobDetailModalProps> = ({
+  job,
+  onClose,
+  onStatusChange,
+  onUpdateActualCost,
+  onEdit,
+  onPrint,
+  settings,
+  isAdmin,
+}) => {
+  if (!job) return null;
+
+  const [actualCostInput, setActualCostInput] = useState<string>(
+    job.actualCost !== null ? String(job.actualCost) : ''
+  );
+  const [costSaved, setCostSaved] = useState(false);
+
+  // LINE notification states
+  const [isSendingLine, setIsSendingLine] = useState(false);
+  const [lineResultMsg, setLineResultMsg] = useState<{ success: boolean; text: string } | null>(null);
+  const [copiedLine, setCopiedLine] = useState(false);
+
+  const warrantyStatus = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
+
+  const getMapsUrl = () => {
+    if (job.customer.mapCoordinates && job.customer.mapCoordinates.includes(',')) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        job.customer.mapCoordinates
+      )}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      job.customer.address
+    )}`;
+  };
+
+  const handleSaveCost = () => {
+    const cost = Number(actualCostInput);
+    if (!isNaN(cost) && cost >= 0) {
+      onUpdateActualCost(job.id, cost);
+      setCostSaved(true);
+      setTimeout(() => setCostSaved(false), 2000);
+    }
+  };
+
+  // Send current job details/status to LINE Notify
+  const handleSendToLineNotify = async () => {
+    const token = settings.lineNotify?.token?.trim();
+    const formatted = formatStatusChangeNotification(job, undefined, job.status, settings);
+
+    if (!token) {
+      setLineResultMsg({
+        success: false,
+        text: 'ยังไม่ได้ใส่ Token ในหน้าตั้งค่า แนะนำคัดลอกข้อความเพื่อส่งเข้า LINE ด้วยตนเอง',
+      });
+      return;
+    }
+
+    setIsSendingLine(true);
+    setLineResultMsg(null);
+
+    const res = await sendLineNotify(token, formatted);
+
+    addNotificationLog({
+      type: 'status_change',
+      jobQueueNumber: job.queueNumber,
+      jobProduct: job.product,
+      status: job.status,
+      success: res.success,
+      message: `ส่งแจ้งเตือนคิว ${job.queueNumber} สถานะ "${job.status}" ไปยัง LINE`,
+      responseMessage: res.message,
+    });
+
+    setLineResultMsg({
+      success: res.success,
+      text: res.message,
+    });
+    setIsSendingLine(false);
+
+    setTimeout(() => {
+      setLineResultMsg(null);
+    }, 4000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95 duration-150 my-6 max-h-[90vh] overflow-y-auto">
+        {/* Header Bar */}
+        <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-3">
+            <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-lg font-mono font-bold text-sm sm:text-base">
+              {job.queueNumber}
+            </span>
+            <div>
+              <h3 className="font-bold text-slate-900 text-base sm:text-lg">
+                {job.product}
+              </h3>
+              <p className="text-xs text-slate-500">
+                นัดหมาย: {job.appointmentDate} ({job.appointmentTime})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onEdit(job);
+                }}
+                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                title="แก้ไขข้อมูล"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={() => onPrint(job)}
+              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+              title="พิมพ์ใบส่งมอบงาน / ใบเสร็จ"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition-colors ml-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Status Workflow Ribbon */}
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+          <div className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+            <span>ลำดับขั้นตอนการปฏิบัติงาน Onsite:</span>
+            <span className="font-bold text-blue-600">สถานะปัจจุบัน: {job.status}</span>
+          </div>
+
+          <div className="grid grid-cols-5 gap-1 text-[11px]">
+            {STATUS_PROGRESSION.map((st, idx) => {
+              const isCurrent = job.status === st;
+              const isPassed =
+                STATUS_PROGRESSION.indexOf(job.status) > idx &&
+                job.status !== 'ยกเลิก' &&
+                job.status !== 'นัดหมายต่อ';
+
+              return (
+                <button
+                  key={st}
+                  onClick={() => onStatusChange(job.id, st)}
+                  className={`py-2 px-1 text-center rounded-lg font-medium transition-all ${
+                    isCurrent
+                      ? 'bg-blue-600 text-white shadow-xs font-bold ring-2 ring-blue-300'
+                      : isPassed
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="block truncate">{st}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {(job.status === 'นัดหมายต่อ' || job.status === 'ยกเลิก') && (
+            <div className="p-2 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-800 font-medium">
+              สถานะพิเศษ: <strong>{job.status}</strong>
+            </div>
+          )}
+        </div>
+
+        {/* Customer Quick Actions Bar */}
+        <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-200/80 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-blue-800 font-semibold block">ลูกค้า:</span>
+              <span className="font-bold text-slate-900 text-sm sm:text-base">
+                {job.customer.name}
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-xs text-slate-500 block">เบอร์ติดต่อ:</span>
+              <span className="font-mono font-bold text-slate-900">{job.customer.phone}</span>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="font-semibold block text-slate-800 mb-0.5">ที่อยู่หน้างาน:</span>
+            {job.customer.address}
+          </div>
+
+          {/* Quick Buttons for Technician Onsite */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+            <a
+              href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
+              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>โทรหาลูกค้า</span>
+            </a>
+
+            {job.customer.lineId ? (
+              <a
+                href={`https://line.me/ti/p/~${job.customer.lineId.replace('@', '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 py-2 px-3 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>ทัก LINE</span>
+              </a>
+            ) : (
+              <span className="flex items-center justify-center py-2 px-3 bg-slate-100 text-slate-400 rounded-lg text-xs">
+                ไม่มี LINE
+              </span>
+            )}
+
+            {job.customer.facebook ? (
+              <a
+                href={
+                  job.customer.facebook.startsWith('http')
+                    ? job.customer.facebook
+                    : `https://facebook.com/${encodeURIComponent(job.customer.facebook)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 py-2 px-3 bg-[#1877F2] hover:bg-[#166fe5] text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              >
+                <Facebook className="w-3.5 h-3.5" />
+                <span>Facebook</span>
+              </a>
+            ) : (
+              <span className="flex items-center justify-center py-2 px-3 bg-slate-100 text-slate-400 rounded-lg text-xs">
+                ไม่มี Facebook
+              </span>
+            )}
+
+            <a
+              href={getMapsUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              <span>นำทาง GPS</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Problem & Repair Details */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm">
+          <div className="space-y-1.5">
+            <span className="font-semibold text-slate-700 block">อาการที่รับแจ้ง:</span>
+            <div className="p-3 bg-amber-50/70 text-amber-900 border border-amber-200/80 rounded-lg leading-relaxed">
+              {job.symptoms}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="font-semibold text-slate-700 block">รายละเอียดงาน / แนวทางแก้ไข:</span>
+            <div className="p-3 bg-slate-50 text-slate-800 border border-slate-200 rounded-lg leading-relaxed">
+              {job.jobDetails || 'ตรวจเช็คตามมาตรฐาน onsite service'}
+            </div>
+          </div>
+        </div>
+
+        {/* Cost & Payment Section */}
+        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <div>
+            <span className="text-xs text-slate-500 block">ประเมินราคาไว้:</span>
+            <span className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+              ฿{job.estimatedCost.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="flex-1 max-w-xs">
+            <label className="text-xs font-semibold text-slate-700 block mb-1">
+              ค่าซ่อมจริงที่เก็บลูกค้า (บาท):
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="0"
+                value={actualCostInput}
+                onChange={(e) => setActualCostInput(e.target.value)}
+                placeholder="ระบุค่าซ่อมจริง"
+                className="w-full px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold"
+              />
+              <button
+                type="button"
+                onClick={handleSaveCost}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition-colors"
+              >
+                บันทึกยอด
+              </button>
+            </div>
+            {costSaved && (
+              <span className="text-[11px] text-emerald-600 font-medium block mt-1">
+                ✓ บันทึกค่าซ่อมจริงแล้ว
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Warranty Status Box (ระยะประกัน ให้เเสดงเวลาคงเหลือประกันเพื่อเตือนว่ายังอยู่ในประกันหรือหมดประกัน) */}
+        <div
+          className={`p-4 rounded-xl border space-y-2 ${
+            warrantyStatus.status === 'valid'
+              ? 'bg-emerald-50/70 border-emerald-200'
+              : warrantyStatus.status === 'warning'
+              ? 'bg-amber-50/80 border-amber-300'
+              : 'bg-red-50/70 border-red-200'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {warrantyStatus.status === 'valid' && (
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              )}
+              {warrantyStatus.status === 'warning' && (
+                <ShieldAlert className="w-5 h-5 text-amber-600 animate-pulse" />
+              )}
+              {warrantyStatus.status === 'expired' && (
+                <ShieldX className="w-5 h-5 text-red-600" />
+              )}
+              <div>
+                <span className="font-bold text-sm text-slate-900 block">
+                  {warrantyStatus.label}
+                </span>
+                <span className="text-xs text-slate-600">
+                  ระยะประกัน {job.warrantyDays} วัน (สิ้นสุดวันที่ {warrantyStatus.formattedEndDate})
+                </span>
+              </div>
+            </div>
+
+            <div className="text-right font-mono font-bold text-sm">
+              {warrantyStatus.status === 'expired' ? (
+                <span className="text-red-700 bg-red-100 px-2.5 py-1 rounded-md text-xs">
+                  หมดประกันแล้ว
+                </span>
+              ) : (
+                <span className="text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-md text-xs">
+                  คุ้มครองอยู่
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* LINE Notify Action Card */}
+        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
+                <BellRing className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-xs sm:text-sm text-slate-900 block">
+                  ส่งการแจ้งเตือนงานนี้ผ่าน LINE
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {settings.lineNotify?.enabled && settings.lineNotify?.token
+                    ? 'ระบบ LINE Notify เชื่อมต่อแล้ว พร้อมส่งข้อความอัตโนมัติ'
+                    : 'ยังไม่ได้ใส่ Token ในหน้าตั้งค่า สามารถคัดลอกข้อความไปวางใน LINE ได้'}
+                </span>
+              </div>
+            </div>
+
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              สถานะ: {job.status}
+            </span>
+          </div>
+
+          {/* Feedback banner */}
+          {lineResultMsg && (
+            <div
+              className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                lineResultMsg.success
+                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  : 'bg-rose-100 text-rose-900 border border-rose-200'
+              }`}
+            >
+              <Check className="w-4 h-4 shrink-0" />
+              <span>{lineResultMsg.text}</span>
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleSendToLineNotify}
+              disabled={isSendingLine}
+              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {isSendingLine ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+              <span>{isSendingLine ? 'กำลังส่งแจ้งเตือน...' : 'ส่งแจ้งเตือน LINE Notify ทันที'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const text = formatStatusChangeNotification(job, undefined, job.status, settings);
+                navigator.clipboard.writeText(text);
+                setCopiedLine(true);
+                setTimeout(() => setCopiedLine(false), 2000);
+              }}
+              className="py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              {copiedLine ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>คัดลอกแล้ว</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>คัดลอกข้อความ</span>
+                </>
+              )}
+            </button>
+
+            <a
+              href={getLineShareUrl(
+                formatStatusChangeNotification(job, undefined, job.status, settings)
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="py-2 px-3 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            >
+              <span>เปิดใน LINE</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => onPrint(job)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+          >
+            <Printer className="w-4 h-4" />
+            <span>พิมพ์ใบส่งมอบงาน / ใบเสร็จ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            ปิดหน้าต่าง
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
