@@ -122,8 +122,8 @@ export function loadCurrentAuth(): AuthSession | null {
   } catch (e) {
     console.error('Failed to load auth', e);
   }
-  // Default to admin for initial dashboard experience
-  return { role: 'admin', userName: 'แอดมินเจ้าของร้าน' };
+  // Default to user so the Admin button is prominent and requires PIN 099-225-6601 to enter admin
+  return { role: 'user', userName: 'ช่างหน้างาน' };
 }
 
 export function saveCurrentAuth(auth: AuthSession | null): void {
