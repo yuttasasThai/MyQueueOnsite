@@ -1,4 +1,4 @@
-// File: /src/components/CreateUserLinkPage.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
+// File: /src/components/CreateUserLinkPage.tsx | Revision: Rev 14 | Version: 1.2.9 | Modified: 2026-11-13
 import React, { useState, useMemo } from 'react';
 import {
   Link as LinkIcon,
@@ -27,6 +27,7 @@ import {
 import { UserAccount, RenewalCode } from '../types';
 import {
   buildUserLink,
+  buildAdminLink,
   checkUserLinkExpiry,
   generateRenewalCode,
   applyUserRenewal,
@@ -240,6 +241,40 @@ export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
             )}
           </div>
         </div>
+
+        {/* Permanent Admin Link (No Expiry & No Boot Screen) */}
+        {(() => {
+          const adminPermanentUrl = buildAdminLink();
+          return (
+            <div className="mt-5 pt-4 border-t border-slate-700/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-0.5 min-w-0">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>ลิงก์แอดมินถาวร (ไม่มีวันหมดอายุ · เข้าใช้งานทันทีไม่ต้องรอบูทสกรีน)</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  บันทึกลิงก์นี้ไว้สำหรับเจ้าของร้านเพื่อเปิดเข้าสู่หน้าแอดมินได้ตลอดชีพโดยไม่มีวันหมดอายุ
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                <input
+                  type="text"
+                  readOnly
+                  value={adminPermanentUrl}
+                  className="bg-slate-950/80 text-amber-200 font-mono text-[11px] px-3 py-2 rounded-xl border border-amber-500/40 w-full sm:w-72 truncate focus:outline-none select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCopy(adminPermanentUrl, 'คัดลอกลิงก์แอดมินถาวร (ไม่มีวันหมดอายุ) เรียบร้อยแล้ว')}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer shadow-xs"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>คัดลอก</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Pop-up Alert: แจ้งเตือนเมื่อมี Link User หมดอายุ (ถ้ามี) */}
