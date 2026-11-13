@@ -1,51 +1,84 @@
-// File: /src/data/initialData.ts | Revision: Rev 6 | Version: 1.2.1 | Modified: 2026-11-11
+// File: /src/data/initialData.ts | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
 import { RepairJob, ShopSettings, UserAccount } from '../types';
+import icon1 from '../assets/icons/icon_1_893a5ecf.png';
+import icon2 from '../assets/icons/icon_2_8a307e4f.png';
+import icon3 from '../assets/icons/icon_3_4ff1caeb.png';
+import icon4 from '../assets/icons/icon_4_3603ba07.png';
+import icon5 from '../assets/icons/icon_5_974f9216.png';
+import icon6 from '../assets/icons/icon_6_abf46449.png';
+import iconOriginal from '../assets/icons/file_000000006950821184544fc25a17acb4_c0d2c9f1.png';
+import coverPhoto from '../assets/images/cover_repair_onsite_1792765110701.jpg';
 
-// Default Cover Image generated specifically for this app (หรือภาพกล่องเครื่องมืองานนอกสถานที่)
-export const DEFAULT_COVER_IMAGE = '/assets/aistudio/icon_1_893a5ecf.png';
+// Default Cover Image bundled directly via Vite
+export const DEFAULT_COVER_IMAGE = icon1;
 
 export const COVER_PRESETS = [
   {
     id: 'icon-1',
     name: 'กระเป๋าเครื่องมือ Onsite - มัลติมิเตอร์ & รถบริการ (สไตล์ 1 แนะนำ)',
-    url: '/assets/aistudio/icon_1_893a5ecf.png',
+    url: icon1,
   },
   {
     id: 'icon-2',
     name: 'กล่องเครื่องมือดำ-เหลือง พร้อมรถตู้บริการนอกสถานที่ (สไตล์ 2)',
-    url: '/assets/aistudio/icon_2_8a307e4f.png',
+    url: icon2,
   },
   {
     id: 'icon-3',
     name: 'กล่องช่างซ่อมประจำบ้าน สัญลักษณ์สายฟ้า & หัวแร้ง (สไตล์ 3)',
-    url: '/assets/aistudio/icon_3_4ff1caeb.png',
+    url: icon3,
   },
   {
     id: 'icon-4',
     name: 'ชุดอุปกรณ์ซ่อมกล้องวงจรปิด จานดาวเทียม & วงจร (สไตล์ 4)',
-    url: '/assets/aistudio/icon_4_3603ba07.png',
+    url: icon4,
   },
   {
     id: 'icon-5',
     name: 'กล่องเครื่องมือเขียว-ดำ พร้อมเครื่องออสซิลโลสโคป (สไตล์ 5)',
-    url: '/assets/aistudio/icon_5_974f9216.png',
+    url: icon5,
   },
   {
     id: 'icon-6',
     name: 'กล่องเครื่องมือช่างอิเล็กทรอนิกส์ & แผงวงจรบัดกรี (สไตล์ 6)',
-    url: '/assets/aistudio/icon_6_abf46449.png',
+    url: icon6,
   },
   {
     id: 'original-toolbag',
     name: 'กระเป๋าเครื่องมือซ่อมงานนอกสถานที่แบบดั้งเดิม',
-    url: '/assets/aistudio/file_000000006950821184544fc25a17acb4_c0d2c9f1.png',
+    url: iconOriginal,
   },
   {
     id: 'repair-pro-1',
     name: 'ช่างเทคนิค Onsite มาตรฐานสูง (ภาพถ่ายจริง)',
-    url: '/src/assets/images/cover_repair_onsite_1792765110701.jpg',
+    url: coverPhoto,
   },
 ];
+
+// Map any legacy localStorage path (/assets/aistudio/... or /src/assets/...) to the Vite-bundled asset URL
+const LEGACY_IMAGE_MAP: Record<string, string> = {
+  '/assets/aistudio/icon_1_893a5ecf.png': icon1,
+  '/assets/aistudio/icon_2_8a307e4f.png': icon2,
+  '/assets/aistudio/icon_3_4ff1caeb.png': icon3,
+  '/assets/aistudio/icon_4_3603ba07.png': icon4,
+  '/assets/aistudio/icon_5_974f9216.png': icon5,
+  '/assets/aistudio/icon_6_abf46449.png': icon6,
+  '/assets/aistudio/file_000000006950821184544fc25a17acb4_c0d2c9f1.png': iconOriginal,
+  '/src/assets/images/cover_repair_onsite_1792765110701.jpg': coverPhoto,
+};
+
+export function resolveCoverImage(url?: string): string {
+  if (!url || !url.trim()) return DEFAULT_COVER_IMAGE;
+  if (LEGACY_IMAGE_MAP[url]) return LEGACY_IMAGE_MAP[url];
+  // Match by filename in case path prefix varied
+  for (const [legacyKey, bundledUrl] of Object.entries(LEGACY_IMAGE_MAP)) {
+    const filename = legacyKey.split('/').pop();
+    if (filename && url.includes(filename)) {
+      return bundledUrl;
+    }
+  }
+  return url;
+}
 
 export const INITIAL_SHOP_SETTINGS: ShopSettings = {
   shopName: 'โปรซ่อมด่วน Onsite Service (Pro Onsite Service Thailand)',
