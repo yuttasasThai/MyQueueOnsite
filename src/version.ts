@@ -1,9 +1,9 @@
-// File: /src/version.ts | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
+// File: /src/version.ts | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.2.5';
-export const APP_REVISION = 'Rev 10';
-export const APP_RELEASE_DATE = '2026-11-12';
+export const APP_VERSION = '1.2.6';
+export const APP_REVISION = 'Rev 11';
+export const APP_RELEASE_DATE = '2026-11-13';
 
 export interface RevisionRecord {
   revision: string;
@@ -14,6 +14,25 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 11',
+    version: '1.2.6',
+    date: '2026-11-13',
+    description:
+      'แก้ไขภาพปุ่มสร้างคิวงานหายบน Vercel โดยย้ายไฟล์ไอคอนเข้า src/assets/icons/ และ import ผ่าน Vite module พร้อมตัวแปลง path เก่าและปรับ vercel.json ไม่ให้ rewrite ทับ /assets/*, แก้ไขหน้าจอ BootLoadingScreen ไม่ให้ล้นจอมือถือ (จำกัดความกว้าง ความสูง และจัดการ truncate/min-w-0), และปรับสัดส่วน Navbar แถบเมนูด้านบนบนมือถือไม่ให้ดันหน้าจอล้นด้านข้าง',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/data/initialData.ts',
+      'src/components/HeroCover.tsx',
+      'src/components/BootLoadingScreen.tsx',
+      'src/components/AdminSettings.tsx',
+      'src/components/Navbar.tsx',
+      'src/App.tsx',
+      'src/index.css',
+      'vercel.json',
+      'package.json',
+    ],
+  },
   {
     revision: 'Rev 10',
     version: '1.2.5',

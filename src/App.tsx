@@ -1,4 +1,4 @@
-// File: /src/App.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
+// File: /src/App.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
@@ -397,7 +397,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-['Prompt',sans-serif]">
+    <div className="min-h-screen w-full max-w-full overflow-x-clip bg-slate-100/70 text-slate-900 flex flex-col font-['Prompt',sans-serif]">
       {/* Top Bar Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -714,7 +714,7 @@ export default function App() {
 
       {/* Floating LINE Notification Toast */}
       {lineToast && (
-        <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in slide-in-from-bottom-5 duration-200 flex items-start gap-3">
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm sm:w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in slide-in-from-bottom-5 duration-200 flex items-start gap-3">
           <div
             className={`p-2 rounded-xl shrink-0 ${
               lineToast.type === 'error'
