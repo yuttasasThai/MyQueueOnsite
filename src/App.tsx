@@ -1,4 +1,4 @@
-// File: /src/App.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
+// File: /src/App.tsx | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
@@ -636,10 +636,8 @@ export default function App() {
         <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
           <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
             <span>{settings.shopName} · ระบบจัดตารางคิวงานซ่อมนอกสถานที่ (Onsite Service)</span>
-            <div className="flex items-center gap-3">
-              <span>โทร: {settings.phone}</span>
-              <span>·</span>
-              <span>LINE: {settings.lineId}</span>
+            <div className="flex items-center gap-2 font-semibold text-slate-600">
+              <span>ผู้จัดทำ ช่างหน่อยชุมแพ 0992256601</span>
             </div>
           </div>
         </footer>

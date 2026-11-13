@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
+// File: /src/version.ts | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.2.7';
-export const APP_REVISION = 'Rev 12';
+export const APP_VERSION = '1.2.8';
+export const APP_REVISION = 'Rev 13';
 export const APP_RELEASE_DATE = '2026-11-13';
 
 export interface RevisionRecord {
@@ -14,6 +14,20 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 13',
+    version: '1.2.8',
+    date: '2026-11-13',
+    description:
+      'บีบอัดลิงก์ User ให้สั้นลงมากกว่า 70% (?u=...) โดยยังคงรองรับการเข้าใช้งานข้ามอุปกรณ์และลิงก์เดิม, เปลี่ยนป้ายข้อความ "คำโปรยรองใต้หัวเรื่อง" เป็น "สโลวแกนร้าน", และอัปเดตแถบด้านล่างสุดเป็น "ผู้จัดทำ ช่างหน่อยชุมแพ 0992256601" แทนเบอร์โทร/LINE ร้าน',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/services/storage.ts',
+      'src/components/AdminSettings.tsx',
+      'src/App.tsx',
+      'package.json',
+    ],
+  },
   {
     revision: 'Rev 12',
     version: '1.2.7',
