@@ -1,4 +1,4 @@
-// File: /src/App.tsx | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
+// File: /src/App.tsx | Revision: Rev 14 | Version: 1.2.9 | Modified: 2026-11-13
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
@@ -99,7 +99,7 @@ export default function App() {
     if (initialUrlAdmin) {
       const adminAuth: AuthSession = {
         role: 'admin',
-        userName: 'แอดมินเจ้าของร้าน (ผ่านลิงก์แอดมิน)',
+        userName: 'แอดมินเจ้าของร้าน (ลิงก์ถาวร)',
       };
       saveCurrentAuth(adminAuth);
       return adminAuth;
@@ -119,7 +119,12 @@ export default function App() {
       saveCurrentAuth(userAuth);
       return userAuth;
     }
-    return loadCurrentAuth() || { role: 'user', userName: 'ช่างหน้างาน' };
+    // Root URL (/): if previously saved as admin keep admin; never carry stale User Link expiry (e.g. 45 days) onto root URL
+    const saved = loadCurrentAuth();
+    if (saved && saved.role === 'admin') {
+      return saved;
+    }
+    return { role: 'user', userName: 'ช่างหน้างาน' };
   });
 
   // Navigation tab
@@ -163,7 +168,7 @@ export default function App() {
     isOpenedViaUserLink && !initialUrlUserCheck.isExpired && !urlUserVerifiedInSession
   );
   const [isBooting, setIsBooting] = useState<boolean>(
-    isOpenedViaUserLink ? Boolean(urlUserVerifiedInSession && !initialUrlUserCheck.isExpired) : true
+    isOpenedViaUserLink ? Boolean(urlUserVerifiedInSession && !initialUrlUserCheck.isExpired) : false
   );
 
   // Expired Warranty Modal and Audio Alarm state
@@ -212,10 +217,15 @@ export default function App() {
     Boolean(isOpenedViaUserLink && initialUrlUserCheck.isExpired)
   );
 
-  // Find active User Account if logged in as user
-  const activeUserAccount = users.find(
-    (u) => u.id === auth.userId || u.linkToken === auth.linkToken
-  );
+  // Find active User Account if logged in via specific User Link (avoid matching undefined === undefined)
+  const activeUserAccount =
+    auth.userId || auth.linkToken
+      ? users.find(
+          (u) =>
+            (auth.userId && u.id === auth.userId) ||
+            (auth.linkToken && u.linkToken === auth.linkToken)
+        )
+      : undefined;
 
   // Helper: Clear old mock jobs + old cover/shop defaults when a User Link starts for the first time
   const initializeFreshUserLinkEnvironment = (linkToken: string) => {

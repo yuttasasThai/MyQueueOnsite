@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
+// File: /src/version.ts | Revision: Rev 14 | Version: 1.2.9 | Modified: 2026-11-13
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.2.8';
-export const APP_REVISION = 'Rev 13';
+export const APP_VERSION = '1.2.9';
+export const APP_REVISION = 'Rev 14';
 export const APP_RELEASE_DATE = '2026-11-13';
 
 export interface RevisionRecord {
@@ -14,6 +14,20 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 14',
+    version: '1.2.9',
+    date: '2026-11-13',
+    description:
+      'เพิ่มลิงก์แอดมินถาวรไม่มีวันหมดอายุ (?a=cn2026) พร้อมปุ่มคัดลอกในหน้าสร้าง Link User, ยกเลิกบูทสกรีนและล้างค่าอายุลิงก์ 45 วันค้างเมื่อเปิดหน้าหลัก/แอดมิน (ยังคงบูทสกรีนไว้สำหรับลิงก์ User), และบีบอัดลิงก์ User ให้สั้นลงสูงสุดเหลือ ~15-20 ตัวอักษรหลัง ?u= ด้วยการเข้ารหัสแบบ 1-ต่อ-1 ไม่ขยายขนาด Base64',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/services/storage.ts',
+      'src/App.tsx',
+      'src/components/CreateUserLinkPage.tsx',
+      'package.json',
+    ],
+  },
   {
     revision: 'Rev 13',
     version: '1.2.8',
