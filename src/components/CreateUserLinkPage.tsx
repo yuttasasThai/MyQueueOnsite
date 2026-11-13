@@ -1,4 +1,4 @@
-// File: /src/components/CreateUserLinkPage.tsx | Revision: Rev 7 | Version: 1.2.2 | Modified: 2026-11-11
+// File: /src/components/CreateUserLinkPage.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
 import React, { useState, useMemo } from 'react';
 import {
   Link as LinkIcon,
@@ -136,7 +136,6 @@ export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
       )}`
     ).replace(/[^a-zA-Z0-9_-]/g, '_');
 
-    const generatedLink = buildUserLink(safeSlug);
     const newRenewalCode = generateRenewalCode(safeSlug, 30);
 
     const initialRenewalCodes: RenewalCode[] = [
@@ -152,13 +151,14 @@ export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
       password: password.trim() || 'user1234',
       role: 'user',
       linkToken: safeSlug,
-      userLink: generatedLink,
+      userLink: '',
       expiresAt: expireDate.toISOString(),
       renewalCode: newRenewalCode,
       renewalCodesList: initialRenewalCodes,
       createdAt: new Date().toISOString(),
       notes: notes.trim(),
     };
+    newUser.userLink = buildUserLink(newUser);
 
     onSaveUsers([newUser, ...users]);
 
@@ -542,7 +542,7 @@ export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
 
         {/* Table View (Excel / Spreadsheet Style) */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+          <table className="w-full min-w-[780px] text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-semibold uppercase tracking-wider text-[11px]">
                 <th className="py-3 px-3 text-center w-12">#</th>
@@ -644,13 +644,13 @@ export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
                       </td>
 
                       {/* 5. User Link & Copy Button */}
-                      <td className="py-3 px-3 max-w-[220px]">
+                      <td className="py-3 px-3 min-w-[200px] max-w-[240px]">
                         <div className="flex items-center gap-1.5">
                           <input
                             type="text"
                             readOnly
                             value={u.userLink}
-                            className="bg-slate-100 text-slate-700 font-mono text-[10px] px-2 py-1 rounded border border-slate-200 w-full truncate focus:outline-none select-all"
+                            className="bg-slate-100 text-slate-700 font-mono text-[10px] px-2 py-1.5 rounded border border-slate-200 w-full min-w-[120px] truncate focus:outline-none select-all"
                           />
                           <button
                             type="button"

@@ -85,14 +85,37 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
       </div>
 
       {/* Title & Subtitle */}
-      <div className="relative z-10 mb-4 space-y-1">
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white font-['Plus_Jakarta_Sans',sans-serif]">
-          {settings?.coverTitle || 'Repair Onsite Service'}
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-300 font-medium">
-          {settings?.coverSubtitle || 'ช่างหน่อยชุมแพ'}
-        </p>
-      </div>
+      {(() => {
+        const displayTitle = isAdmin
+          ? settings?.coverTitle || 'Repair Onsite Service'
+          : settings?.coverTitle && settings.coverTitle !== 'Repair Onsite Service'
+          ? settings.coverTitle
+          : '';
+        const displaySubtitle = isAdmin
+          ? settings?.coverSubtitle || 'ช่างหน่อยชุมแพ'
+          : settings?.coverSubtitle && settings.coverSubtitle !== 'ช่างหน่อยชุมแพ'
+          ? settings.coverSubtitle
+          : '';
+
+        if (!displayTitle.trim() && !displaySubtitle.trim()) {
+          return <div className="mb-2" />;
+        }
+
+        return (
+          <div className="relative z-10 mb-4 space-y-1">
+            {displayTitle.trim() && (
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white font-['Plus_Jakarta_Sans',sans-serif]">
+                {displayTitle}
+              </h1>
+            )}
+            {displaySubtitle.trim() && (
+              <p className="text-xs sm:text-sm text-slate-300 font-medium">
+                {displaySubtitle}
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Center: Toolbag Icon & "+ กดเพื่อสร้างคิวงานใหม่" Button with Modern Dimensional Bezel Frame */}
       <div className="relative z-10 my-2 flex flex-col items-center">

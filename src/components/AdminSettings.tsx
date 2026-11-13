@@ -1,5 +1,5 @@
-// File: /src/components/AdminSettings.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
-import React, { useState } from 'react';
+// File: /src/components/AdminSettings.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
+import React, { useState, useEffect } from 'react';
 import {
   Image as ImageIcon,
   Store,
@@ -46,19 +46,35 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<'shop' | 'line_notify'>('shop');
 
-  // Shop Settings Form State
-  const [formData, setFormData] = useState<ShopSettings>({
-    ...settings,
-    lineNotify: settings.lineNotify || {
-      enabled: true,
-      token: '',
-      notifyOnNewJob: true,
-      notifyOnStatusChange: true,
-      includeCustomerPhone: true,
-      includeMapLink: true,
-    },
-  });
+  // Shop Settings Form State (สำหรับ User ไม่แสดงค่าเดิมของร้าน/หน้าปกที่ค้างไว้)
+  const sanitizeForRole = (s: ShopSettings): ShopSettings => {
+    const base = {
+      ...s,
+      lineNotify: s.lineNotify || {
+        enabled: true,
+        token: '',
+        notifyOnNewJob: true,
+        notifyOnStatusChange: true,
+        includeCustomerPhone: true,
+        includeMapLink: true,
+      },
+    };
+    if (!isAdmin) {
+      return {
+        ...base,
+        coverTitle: base.coverTitle === 'Repair Onsite Service' ? '' : base.coverTitle || '',
+        coverSubtitle: base.coverSubtitle === 'ช่างหน่อยชุมแพ' ? '' : base.coverSubtitle || '',
+      };
+    }
+    return base;
+  };
+
+  const [formData, setFormData] = useState<ShopSettings>(() => sanitizeForRole(settings));
   const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    setFormData(sanitizeForRole(settings));
+  }, [settings, isAdmin]);
 
   // LINE Notify Testing State
   const [showLineToken, setShowLineToken] = useState(false);
@@ -152,7 +168,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
             }`}
           >
             <Store className="w-4 h-4" />
-            <span>ตั้งค่าร้านค้า & ไอค่อนปุ่ม</span>
+            <span>{isAdmin ? 'ตั้งค่าร้านค้า & ไอค่อนปุ่ม' : 'ตั้งค่าหน้าปก & ไอค่อนปุ่ม'}</span>
           </button>
 
           <button
@@ -175,7 +191,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
         {!isAdmin && (
           <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>สิทธิ์ช่าง/ผู้ใช้ทั่วไป: สามารถเปลี่ยนไอค่อนปุ่มและดูข้อมูลร้านได้</span>
+            <span>ตั้งค่าพื้นฐาน: เปลี่ยนไอค่อนปุ่มและข้อความหน้าปก</span>
           </div>
         )}
       </div>
@@ -290,7 +306,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   type="text"
                   value={formData.coverTitle}
                   onChange={(e) => setFormData({ ...formData, coverTitle: e.target.value })}
-                  placeholder="Repair Onsite Service"
+                  placeholder={isAdmin ? 'Repair Onsite Service' : 'กรอกข้อความหัวเรื่องหน้าปก'}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -303,14 +319,15 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   type="text"
                   value={formData.coverSubtitle}
                   onChange={(e) => setFormData({ ...formData, coverSubtitle: e.target.value })}
-                  placeholder="ศูนย์บริการซ่อมด่วนถึงบ้าน..."
+                  placeholder={isAdmin ? 'ศูนย์บริการซ่อมด่วนถึงบ้าน...' : 'กรอกคำโปรยใต้หัวเรื่อง'}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* Card 2: Shop Contact Details (ข้อมูลร้านค้า & ช่องทางติดต่อ โดยไม่ต้องมีตั้งรหัสผ่าน admin) */}
+          {/* Card 2: Shop Contact Details — เฉพาะแอดมินเท่านั้น (ลบออกจากหน้าลิงก์ User) */}
+          {isAdmin && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <Store className="w-5 h-5 text-blue-600" />
@@ -413,6 +430,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
               </div>
             </div>
           </div>
+          )}
 
           {/* Submit Button */}
           <div className="flex items-center justify-end gap-3">
