@@ -1,4 +1,4 @@
-// File: /src/services/storage.ts | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
+// File: /src/services/storage.ts | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
 import { RepairJob, ShopSettings, UserAccount, RenewalCode } from '../types';
 import {
   INITIAL_SHOP_SETTINGS,
@@ -11,10 +11,9 @@ const JOBS_KEY = 'repair_onsite_jobs_v1';
 const USERS_KEY = 'repair_onsite_users_v1';
 const CURRENT_AUTH_KEY = 'repair_onsite_auth_v1';
 
-function encodePayloadBase64Url(obj: unknown): string {
+function encodeStringBase64Url(text: string): string {
   try {
-    const json = JSON.stringify(obj);
-    const bytes = new TextEncoder().encode(json);
+    const bytes = new TextEncoder().encode(text);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
       binary += String.fromCharCode(bytes[i]);
@@ -25,7 +24,7 @@ function encodePayloadBase64Url(obj: unknown): string {
   }
 }
 
-function decodePayloadBase64Url<T>(encoded: string): T | null {
+function decodeStringBase64Url(encoded: string): string | null {
   try {
     let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
     while (base64.length % 4) {
@@ -36,8 +35,7 @@ function decodePayloadBase64Url<T>(encoded: string): T | null {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    const json = new TextDecoder().decode(bytes);
-    return JSON.parse(json) as T;
+    return new TextDecoder().decode(bytes);
   } catch {
     return null;
   }
@@ -55,19 +53,24 @@ export function buildUserLink(userOrToken: UserAccount | string): string {
   if (typeof userOrToken === 'string') {
     return `${base}?user_token=${encodeURIComponent(userOrToken)}`;
   }
-  const compactPayload = {
-    id: userOrToken.id,
-    n: userOrToken.name,
-    p: userOrToken.phone,
-    un: userOrToken.username,
-    pw: userOrToken.password,
-    t: userOrToken.linkToken,
-    e: userOrToken.expiresAt,
-    rc: userOrToken.renewalCode,
-  };
-  const encoded = encodePayloadBase64Url(compactPayload);
-  const url = `${base}?user_token=${encodeURIComponent(userOrToken.linkToken)}`;
-  return encoded ? `${url}&u=${encoded}` : url;
+  const expHrsNum = Math.max(1, Math.ceil(new Date(userOrToken.expiresAt).getTime() / 3600000));
+  const expHrsB36 = Number.isFinite(expHrsNum) ? expHrsNum.toString(36) : '';
+  const parts = [
+    userOrToken.username,
+    userOrToken.password,
+    expHrsB36,
+    userOrToken.linkToken === userOrToken.username ? '' : userOrToken.linkToken,
+    userOrToken.name === userOrToken.username ? '' : userOrToken.name,
+    userOrToken.phone && userOrToken.phone !== '-' ? userOrToken.phone : '',
+  ];
+  while (parts.length > 4 && !parts[parts.length - 1]) {
+    parts.pop();
+  }
+  const encoded = encodeStringBase64Url(parts.join('\x1f'));
+  if (encoded) {
+    return `${base}?u=${encoded}`;
+  }
+  return `${base}?user_token=${encodeURIComponent(userOrToken.linkToken)}`;
 }
 
 export function buildAdminLink(adminSecretToken?: string): string {
@@ -186,7 +189,7 @@ export function saveCurrentAuth(auth: AuthSession | null): void {
   }
 }
 
-// Check URL param for user token (?user_token=xyz or ?token=xyz) + optional encoded ?u=...
+// Check URL param for user token (?u=... short link, or legacy ?user_token=xyz / ?token=xyz)
 export function checkUrlUserToken(users: UserAccount[]): {
   hasUserParam: boolean;
   foundUser: UserAccount | null;
@@ -206,38 +209,76 @@ export function checkUrlUserToken(users: UserAccount[]): {
 
   let decodedUser: UserAccount | null = null;
   if (encodedUser) {
-    const payload = decodePayloadBase64Url<{
-      id?: string;
-      n?: string;
-      p?: string;
-      un?: string;
-      pw?: string;
-      t?: string;
-      e?: string;
-      rc?: string;
-    }>(encodedUser);
-    if (payload && (payload.t || token)) {
-      const linkToken = payload.t || token || '';
+    const rawStr = decodeStringBase64Url(encodedUser);
+    if (rawStr && rawStr.includes('\x1f')) {
+      const parts = rawStr.split('\x1f');
+      const un = parts[0] || 'user';
+      const pw = parts[1] || '';
+      const expHrsB36 = parts[2] || '';
+      const linkToken = parts[3] || token || un;
+      const name = parts[4] || un;
+      const phone = parts[5] || '-';
+      const expMs = expHrsB36 ? parseInt(expHrsB36, 36) * 3600000 : NaN;
+      const expiresAt =
+        Number.isFinite(expMs) && expMs > 0
+          ? new Date(expMs).toISOString()
+          : new Date().toISOString();
+
       const reconstructed: UserAccount = {
-        id: payload.id || `usr_${linkToken}`,
-        name: payload.n || 'ผู้ใช้งาน',
-        phone: payload.p || '-',
-        username: payload.un || 'user',
-        password: payload.pw || '',
+        id: `usr_${linkToken}`,
+        name,
+        phone,
+        username: un,
+        password: pw,
         role: 'user',
         linkToken,
-        userLink: window.location.href,
-        expiresAt: payload.e || new Date().toISOString(),
-        renewalCode: payload.rc || '',
+        userLink: '',
+        expiresAt,
+        renewalCode: generateRenewalCode(linkToken, 30),
         renewalCodesList: [],
         createdAt: new Date().toISOString(),
       };
       reconstructed.userLink = buildUserLink(reconstructed);
       decodedUser = reconstructed;
+    } else if (rawStr && rawStr.trim().startsWith('{')) {
+      try {
+        const payload = JSON.parse(rawStr) as {
+          id?: string;
+          n?: string;
+          p?: string;
+          un?: string;
+          pw?: string;
+          t?: string;
+          e?: string;
+          rc?: string;
+        };
+        if (payload && (payload.t || token)) {
+          const linkToken = payload.t || token || '';
+          const reconstructed: UserAccount = {
+            id: payload.id || `usr_${linkToken}`,
+            name: payload.n || 'ผู้ใช้งาน',
+            phone: payload.p || '-',
+            username: payload.un || 'user',
+            password: payload.pw || '',
+            role: 'user',
+            linkToken,
+            userLink: '',
+            expiresAt: payload.e || new Date().toISOString(),
+            renewalCode: payload.rc || '',
+            renewalCodesList: [],
+            createdAt: new Date().toISOString(),
+          };
+          reconstructed.userLink = buildUserLink(reconstructed);
+          decodedUser = reconstructed;
+        }
+      } catch {
+        // Ignore malformed legacy JSON
+      }
     }
   }
 
-  const localUser = token ? users.find((u) => u.linkToken === token) || null : null;
+  const lookupToken = token || decodedUser?.linkToken;
+  const localUser = lookupToken ? users.find((u) => u.linkToken === lookupToken) || null : null;
 
   let resolvedUser: UserAccount | null = localUser;
   if (decodedUser && localUser) {
