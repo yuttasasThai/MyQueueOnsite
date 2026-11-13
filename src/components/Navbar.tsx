@@ -1,4 +1,4 @@
-// File: /src/components/Navbar.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
+// File: /src/components/Navbar.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
 import React from 'react';
 import {
   Wrench,
@@ -65,22 +65,22 @@ export const Navbar: React.FC<NavbarProps> = ({
     : null;
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4 md:gap-8 h-16">
+    <header className="sticky top-0 z-40 w-full max-w-full bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs overflow-x-clip">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 md:gap-6 h-14 sm:h-16 min-w-0">
           {/* Zone 1: Wordmark & Logo */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm">
-              <Wrench className="w-5 h-5" />
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 md:flex-initial">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+              <Wrench className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <button
               onClick={() => onTabChange('dashboard')}
-              className="text-left group cursor-pointer"
+              className="text-left group cursor-pointer min-w-0 flex-1"
             >
-              <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors whitespace-nowrap block font-['Plus_Jakarta_Sans',sans-serif]">
+              <span className="text-sm sm:text-lg font-bold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors truncate block font-['Plus_Jakarta_Sans',sans-serif]">
                 Repair Onsite Service
               </span>
-              <span className="text-[11px] text-slate-500 block leading-none font-normal">
+              <span className="hidden sm:block text-[11px] text-slate-500 leading-none font-normal truncate">
                 ระบบจัดตารางคิวงานซ่อมนอกสถานที่
               </span>
             </button>
@@ -154,10 +154,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Zone 3: Primary Action & User Expiry Indicator */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* User Link Expiry Indicator */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* User Link Expiry Indicator (desktop/tablet inline; mobile uses compact bar below) */}
             {!isAdmin && expiryInfo && (
-              <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+              <div className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
                 <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 <div className="leading-tight">
                   <div className="font-semibold flex items-center gap-1">
@@ -168,7 +168,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         : `เหลือ ${expiryInfo.daysRemaining} วัน`}
                     </span>
                   </div>
-                  <div className="text-[10px] text-amber-700 hidden sm:block">
+                  <div className="text-[10px] text-amber-700">
                     ถึง {expiryInfo.formattedDate}
                   </div>
                 </div>
@@ -193,11 +193,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onSwitchToAdmin();
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-950 hover:bg-slate-800 text-white border border-amber-500/50 shadow-md hover:shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                className="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold bg-slate-950 hover:bg-slate-800 text-white border border-amber-500/50 shadow-sm hover:shadow-md transition-all cursor-pointer active:scale-95 shrink-0 whitespace-nowrap"
                 title="กดเพื่อเข้าสู่ระบบแอดมิน (ใส่รหัสผ่าน)"
               >
-                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="font-semibold">แอดมิน (Admin)</span>
+                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+                <span className="sm:hidden">แอดมิน</span>
+                <span className="hidden sm:inline">แอดมิน (Admin)</span>
               </button>
             )}
 
@@ -222,18 +223,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="relative">
               <button
                 onClick={() => setShowUserDropdown(!showUserDropdown)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                   isAdmin
                     ? 'bg-slate-900 text-white border-slate-800 hover:bg-slate-800'
                     : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                 }`}
+                title={isAdmin ? 'แอดมิน (Admin)' : activeUserAccount?.name || auth.userName || 'ช่างหน้างาน'}
               >
                 {isAdmin ? (
                   <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
                 ) : (
                   <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                 )}
-                <div className="text-left max-w-[120px] sm:max-w-[150px] truncate">
+                <div className="hidden sm:block text-left max-w-[130px] truncate">
                   <span className="font-semibold block truncate">
                     {isAdmin ? 'แอดมิน (Admin)' : activeUserAccount?.name || auth.userName || 'ช่างหน้างาน'}
                   </span>
@@ -379,7 +381,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onOpenExpiredWarrantyModal}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-sm shrink-0 whitespace-nowrap cursor-pointer animate-pulse"
+                className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-sm shrink-0 whitespace-nowrap cursor-pointer animate-pulse"
                 title={`มีงานหมดระยะประกัน ${expiredWarrantyCount} รายการ คลิกเพื่อฟังเสียงเตือนและดูรายการ`}
               >
                 <ShieldAlert className="w-3.5 h-3.5" />
@@ -393,64 +395,86 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Primary Action Button: "เปิดคิวงานซ่อมใหม่" */}
             <button
               onClick={onOpenNewJob}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold transition-colors shadow-xs shrink-0 whitespace-nowrap cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] sm:text-sm font-semibold transition-colors shadow-xs shrink-0 whitespace-nowrap cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>รับงานใหม่</span>
+              <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="sm:hidden">รับงาน</span>
+              <span className="hidden sm:inline">รับงานใหม่</span>
             </button>
           </div>
         </div>
 
         {/* Mobile Navigation bar for small screens (ลบหน้าช่าง/user ออก, เพิ่ม สร้าง link user สำหรับ admin) */}
-        <div className="flex md:hidden items-center justify-around py-2 border-t border-slate-100 text-xs overflow-x-auto">
+        <div className="flex md:hidden items-center justify-between gap-1 py-1.5 border-t border-slate-100 text-[11px] w-full overflow-x-auto">
           <button
             onClick={() => onTabChange('dashboard')}
-            className={`flex items-center gap-1 py-1 px-2 rounded font-medium shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
               currentTab === 'dashboard' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
             }`}
           >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>แดชบอร์ด</span>
+            <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">แดชบอร์ด</span>
           </button>
           <button
             onClick={() => onTabChange('queue')}
-            className={`flex items-center gap-1 py-1 px-2 rounded font-medium shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
               currentTab === 'queue' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
             }`}
           >
-            <Wrench className="w-3.5 h-3.5" />
-            <span>คิวงาน</span>
+            <Wrench className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">คิวงาน</span>
           </button>
           <button
             onClick={() => onTabChange('calendar')}
-            className={`flex items-center gap-1 py-1 px-2 rounded font-medium shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
               currentTab === 'calendar' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>ปฏิทิน</span>
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">ปฏิทิน</span>
           </button>
           {isAdmin && (
             <button
               onClick={() => onTabChange('create_link')}
-              className={`flex items-center gap-1 py-1 px-2.5 rounded font-medium shrink-0 cursor-pointer ${
+              className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
                 currentTab === 'create_link' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
               }`}
             >
-              <LinkIcon className="w-3.5 h-3.5" />
-              <span>สร้าง link</span>
+              <LinkIcon className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">สร้าง link</span>
             </button>
           )}
           <button
             onClick={() => onTabChange('settings')}
-            className={`flex items-center gap-1 py-1 px-2.5 rounded font-medium shrink-0 cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
               currentTab === 'settings' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
             }`}
           >
-            <Settings className="w-3.5 h-3.5" />
-            <span>ตั้งค่า</span>
+            <Settings className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">ตั้งค่า</span>
           </button>
         </div>
+
+        {/* Compact Mobile Link Expiry Strip (never overflows header) */}
+        {!isAdmin && expiryInfo && (
+          <div className="flex lg:hidden items-center justify-between gap-2 px-2.5 py-1 mb-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px]">
+            <div className="flex items-center gap-1.5 min-w-0 truncate">
+              <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+              <span className="font-medium truncate">
+                อายุลิงก์:{' '}
+                <strong className="font-mono text-amber-700">
+                  {expiryInfo.isExpired ? 'หมดอายุแล้ว!' : `เหลือ ${expiryInfo.daysRemaining} วัน`}
+                </strong>
+              </span>
+            </div>
+            <button
+              onClick={onOpenRenewModal}
+              className="text-[10px] font-bold text-amber-800 bg-amber-200/80 hover:bg-amber-200 px-2 py-0.5 rounded shrink-0 cursor-pointer"
+            >
+              ต่ออายุ
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

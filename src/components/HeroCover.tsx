@@ -1,4 +1,4 @@
-// File: /src/components/HeroCover.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
+// File: /src/components/HeroCover.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
 import React, { useState } from 'react';
 import {
   Clock,
@@ -7,13 +7,13 @@ import {
   Plus,
   RotateCcw,
   AlertTriangle,
-  X,
   CheckCircle2,
   ShieldCheck,
   Link as LinkIcon,
 } from 'lucide-react';
 import { RepairJob, ShopSettings } from '../types';
 import { APP_VERSION, APP_REVISION } from '../version';
+import { DEFAULT_COVER_IMAGE, resolveCoverImage } from '../data/initialData';
 
 interface HeroCoverProps {
   jobs: RepairJob[];
@@ -57,11 +57,8 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
     (j) => j.status !== 'ปิดงาน' && j.status !== 'ยกเลิก'
   );
 
-  // Use the active toolbag icon selected by user/admin from settings
-  const toolbagImage =
-    settings?.coverImage && settings.coverImage.startsWith('/assets/aistudio/')
-      ? settings.coverImage
-      : '/assets/aistudio/icon_1_893a5ecf.png';
+  // Use the active toolbag icon selected by user/admin from settings (resolved to Vite-bundled asset)
+  const toolbagImage = resolveCoverImage(settings?.coverImage);
 
   const handleConfirmReset = () => {
     if (onClearAllJobs) {
@@ -127,6 +124,11 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
                 <img
                   src={toolbagImage}
                   alt="สร้างคิวงานใหม่"
+                  onError={(e) => {
+                    if (e.currentTarget.src !== DEFAULT_COVER_IMAGE) {
+                      e.currentTarget.src = DEFAULT_COVER_IMAGE;
+                    }
+                  }}
                   className="w-full h-full object-contain filter drop-shadow-[0_12px_22px_rgba(0,0,0,0.85)] group-hover:drop-shadow-[0_18px_32px_rgba(16,185,129,0.65)] group-hover:-translate-y-1 transition-all duration-300"
                 />
               </div>

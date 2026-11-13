@@ -1,4 +1,4 @@
-// File: /src/components/AdminSettings.tsx | Revision: Rev 7 | Version: 1.2.2 | Modified: 2026-11-11
+// File: /src/components/AdminSettings.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
 import React, { useState } from 'react';
 import {
   Image as ImageIcon,
@@ -23,7 +23,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ShopSettings, NotificationLog } from '../types';
-import { COVER_PRESETS } from '../data/initialData';
+import { COVER_PRESETS, resolveCoverImage } from '../data/initialData';
 import {
   sendLineNotify,
   formatTestNotification,
@@ -206,7 +206,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
               </span>
               <div className="w-28 h-28 sm:w-32 sm:h-32 p-2 flex items-center justify-center">
                 <img
-                  src={formData.coverImage}
+                  src={resolveCoverImage(formData.coverImage)}
                   alt="Active Button Icon"
                   className="w-full h-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]"
                 />
@@ -226,7 +226,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
               {/* 6 Presets Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
                 {COVER_PRESETS.slice(0, 6).map((preset, index) => {
-                  const isSelected = formData.coverImage === preset.url;
+                  const isSelected = resolveCoverImage(formData.coverImage) === preset.url;
                   return (
                     <div
                       key={preset.id}
