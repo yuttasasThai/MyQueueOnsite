@@ -1,4 +1,4 @@
-// File: /src/components/AdminSettings.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
+// File: /src/components/AdminSettings.tsx | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
 import React, { useState, useEffect } from 'react';
 import {
   Image as ImageIcon,
@@ -313,13 +313,13 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  คำโปรยรองใต้หัวเรื่อง
+                  สโลวแกนร้าน
                 </label>
                 <input
                   type="text"
                   value={formData.coverSubtitle}
                   onChange={(e) => setFormData({ ...formData, coverSubtitle: e.target.value })}
-                  placeholder={isAdmin ? 'ศูนย์บริการซ่อมด่วนถึงบ้าน...' : 'กรอกคำโปรยใต้หัวเรื่อง'}
+                  placeholder={isAdmin ? 'สโลวแกนร้าน เช่น ศูนย์บริการซ่อมด่วนถึงบ้าน...' : 'กรอกสโลวแกนร้าน'}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
