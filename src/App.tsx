@@ -1,4 +1,4 @@
-// File: /src/App.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
+// File: /src/App.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
@@ -11,6 +11,7 @@ import { AdminSettings } from './components/AdminSettings';
 import { CreateUserLinkPage } from './components/CreateUserLinkPage';
 import { ScheduleCalendarView } from './components/ScheduleCalendarView';
 import { UserLoginModal } from './components/UserLoginModal';
+import { UserLinkLoginModal } from './components/UserLinkLoginModal';
 import { RenewCodeModal } from './components/RenewCodeModal';
 import { DownloadSourceCodeModal } from './components/DownloadSourceCodeModal';
 import { ExpiredWarrantyModal } from './components/ExpiredWarrantyModal';
@@ -48,11 +49,78 @@ import {
 import { ShieldAlert, AlertTriangle, KeyRound, RotateCcw, BellRing, CheckCircle, Phone, Lock } from 'lucide-react';
 
 export default function App() {
+  // Helper: inspect URL parameters synchronously on initial render so shared User Links NEVER boot as Admin
+  const initialUsersList = React.useMemo(() => loadUsers(), []);
+  const initialSettingsObj = React.useMemo(() => loadShopSettings(), []);
+  const initialUrlAdmin = React.useMemo(
+    () => checkUrlAdminToken(initialSettingsObj),
+    [initialSettingsObj]
+  );
+  const initialUrlUserCheck = React.useMemo(
+    () => checkUrlUserToken(initialUsersList),
+    [initialUsersList]
+  );
+
+  const isOpenedViaUserLink = !initialUrlAdmin && initialUrlUserCheck.hasUserParam;
+  const urlUserVerifiedInSession =
+    isOpenedViaUserLink &&
+    initialUrlUserCheck.foundUser &&
+    typeof sessionStorage !== 'undefined' &&
+    sessionStorage.getItem(`verified_user_link_${initialUrlUserCheck.foundUser.linkToken}`) === '1';
+
   // Persistence state
-  const [settings, setSettings] = useState<ShopSettings>(loadShopSettings);
-  const [users, setUsers] = useState<UserAccount[]>(loadUsers);
+  const [settings, setSettings] = useState<ShopSettings>(() => {
+    if (isOpenedViaUserLink) {
+      return {
+        ...initialSettingsObj,
+        coverTitle:
+          initialSettingsObj.coverTitle === 'Repair Onsite Service'
+            ? ''
+            : initialSettingsObj.coverTitle,
+        coverSubtitle:
+          initialSettingsObj.coverSubtitle === 'ช่างหน่อยชุมแพ'
+            ? ''
+            : initialSettingsObj.coverSubtitle,
+      };
+    }
+    return initialSettingsObj;
+  });
+  const [users, setUsers] = useState<UserAccount[]>(() => {
+    const found = initialUrlUserCheck.foundUser;
+    if (found && !initialUsersList.some((u) => u.linkToken === found.linkToken)) {
+      const merged = [found, ...initialUsersList];
+      saveUsers(merged);
+      return merged;
+    }
+    return initialUsersList;
+  });
   const [jobs, setJobs] = useState<RepairJob[]>(loadJobs);
-  const [auth, setAuth] = useState<AuthSession>(() => loadCurrentAuth() || { role: 'user', userName: 'ช่างหน้างาน' });
+  const [auth, setAuth] = useState<AuthSession>(() => {
+    if (initialUrlAdmin) {
+      const adminAuth: AuthSession = {
+        role: 'admin',
+        userName: 'แอดมินเจ้าของร้าน (ผ่านลิงก์แอดมิน)',
+      };
+      saveCurrentAuth(adminAuth);
+      return adminAuth;
+    }
+    if (isOpenedViaUserLink) {
+      const u = initialUrlUserCheck.foundUser;
+      const userAuth: AuthSession = u
+        ? {
+            role: 'user',
+            userId: u.id,
+            userName: u.name,
+            userPhone: u.phone,
+            linkToken: u.linkToken,
+            expiresAt: u.expiresAt,
+          }
+        : { role: 'user', userName: 'ผู้ใช้งาน' };
+      saveCurrentAuth(userAuth);
+      return userAuth;
+    }
+    return loadCurrentAuth() || { role: 'user', userName: 'ช่างหน้างาน' };
+  });
 
   // Navigation tab
   const [currentTab, setCurrentTab] = useState<ViewTab>('dashboard');
@@ -86,7 +154,17 @@ export default function App() {
   const [isRenewModalOpen, setIsRenewModalOpen] = useState(false);
   const [isDownloadCodeModalOpen, setIsDownloadCodeModalOpen] = useState(false);
   const [isAdminPinModalOpen, setIsAdminPinModalOpen] = useState(false);
-  const [isBooting, setIsBooting] = useState(true);
+
+  // When opened via User Link (?user_token=...), require Username & Password first (no premature boot screen)
+  const [pendingLinkUser, setPendingLinkUser] = useState<UserAccount | null>(
+    isOpenedViaUserLink ? initialUrlUserCheck.foundUser : null
+  );
+  const [isUserLinkLoginOpen, setIsUserLinkLoginOpen] = useState<boolean>(
+    isOpenedViaUserLink && !initialUrlUserCheck.isExpired && !urlUserVerifiedInSession
+  );
+  const [isBooting, setIsBooting] = useState<boolean>(
+    isOpenedViaUserLink ? Boolean(urlUserVerifiedInSession && !initialUrlUserCheck.isExpired) : true
+  );
 
   // Expired Warranty Modal and Audio Alarm state
   const [isExpiredWarrantyModalOpen, setIsExpiredWarrantyModalOpen] = useState(false);
@@ -130,52 +208,51 @@ export default function App() {
   };
 
   // Link Expiry Warning Modal for user
-  const [showExpiredWarning, setShowExpiredWarning] = useState(false);
+  const [showExpiredWarning, setShowExpiredWarning] = useState<boolean>(
+    Boolean(isOpenedViaUserLink && initialUrlUserCheck.isExpired)
+  );
 
   // Find active User Account if logged in as user
   const activeUserAccount = users.find(
     (u) => u.id === auth.userId || u.linkToken === auth.linkToken
   );
 
-  // Check URL parameters for direct admin link or user link on mount
-  useEffect(() => {
-    // 1. Check if accessed via Admin link (?admin_token=... or ?admin_key=...)
-    if (checkUrlAdminToken(settings)) {
-      const adminAuth: AuthSession = {
-        role: 'admin',
-        userName: 'แอดมินเจ้าของร้าน (ผ่านลิงก์แอดมิน)',
-      };
-      setAuth(adminAuth);
-      saveCurrentAuth(adminAuth);
-      return;
+  // Helper: Clear old mock jobs + old cover/shop defaults when a User Link starts for the first time
+  const initializeFreshUserLinkEnvironment = (linkToken: string) => {
+    const firstInitKey = `user_link_cleared_first_time_${linkToken}`;
+    if (!localStorage.getItem(firstInitKey)) {
+      clearAllJobs();
+      setJobs([]);
+      setSettings((prev) => {
+        // Backup admin settings once if not yet backed up and non-empty
+        if (prev.shopName && !localStorage.getItem('repair_onsite_admin_settings_backup_v1')) {
+          try {
+            localStorage.setItem('repair_onsite_admin_settings_backup_v1', JSON.stringify(prev));
+          } catch {}
+        }
+        const cleaned: ShopSettings = {
+          ...prev,
+          coverTitle: '',
+          coverSubtitle: '',
+          shopName: '',
+          phone: '',
+          lineId: '',
+          lineUrl: '',
+          facebook: '',
+          facebookUrl: '',
+          address: '',
+        };
+        saveShopSettings(cleaned);
+        return cleaned;
+      });
+      localStorage.setItem(firstInitKey, 'true');
     }
+  };
 
-    // 2. Check if accessed via User link (?user_token=... or ?token=...)
-    const tokenCheck = checkUrlUserToken(users);
-    if (tokenCheck.foundUser) {
-      const user = tokenCheck.foundUser;
-      const newAuth: AuthSession = {
-        role: 'user',
-        userId: user.id,
-        userName: user.name,
-        userPhone: user.phone,
-        linkToken: user.linkToken,
-        expiresAt: user.expiresAt,
-      };
-      setAuth(newAuth);
-      saveCurrentAuth(newAuth);
-
-      // ลิ้ง user เมื่อเริ่มต้นใช้งานครั้งแรกให้เคลียร์ข้อมูลเก่าออกให้หมด
-      const firstInitKey = `user_link_cleared_first_time_${user.linkToken}`;
-      if (!localStorage.getItem(firstInitKey)) {
-        clearAllJobs();
-        setJobs([]);
-        localStorage.setItem(firstInitKey, 'true');
-      }
-
-      if (tokenCheck.isExpired) {
-        setShowExpiredWarning(true);
-      }
+  // Apply first-time clearing on mount when opened via User Link
+  useEffect(() => {
+    if (isOpenedViaUserLink && initialUrlUserCheck.foundUser) {
+      initializeFreshUserLinkEnvironment(initialUrlUserCheck.foundUser.linkToken);
     }
   }, []);
 
@@ -352,6 +429,17 @@ export default function App() {
     const newAuth: AuthSession = { role: 'admin', userName: 'แอดมินเจ้าของร้าน' };
     setAuth(newAuth);
     saveCurrentAuth(newAuth);
+    // Restore admin shop settings if cleared during user link session on same device
+    if (!settings.shopName) {
+      try {
+        const backupRaw = localStorage.getItem('repair_onsite_admin_settings_backup_v1');
+        if (backupRaw) {
+          const restored = JSON.parse(backupRaw) as ShopSettings;
+          setSettings(restored);
+          saveShopSettings(restored);
+        }
+      } catch {}
+    }
   };
 
   const handleSwitchToUser = (user: UserAccount) => {
@@ -366,6 +454,10 @@ export default function App() {
     };
     setAuth(newAuth);
     saveCurrentAuth(newAuth);
+
+    if (user.linkToken) {
+      initializeFreshUserLinkEnvironment(user.linkToken);
+    }
 
     if (expiry.isExpired) {
       setShowExpiredWarning(true);
@@ -539,17 +631,19 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>{settings.shopName} · ระบบจัดตารางคิวงานซ่อมนอกสถานที่ (Onsite Service)</span>
-          <div className="flex items-center gap-3">
-            <span>โทร: {settings.phone}</span>
-            <span>·</span>
-            <span>LINE: {settings.lineId}</span>
+      {/* Footer: แสดงเฉพาะโหมด Admin เท่านั้น (ลิงก์ User ลบข้อมูลร้านค้าด้านล่างออก) */}
+      {isAdmin && (
+        <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span>{settings.shopName} · ระบบจัดตารางคิวงานซ่อมนอกสถานที่ (Onsite Service)</span>
+            <div className="flex items-center gap-3">
+              <span>โทร: {settings.phone}</span>
+              <span>·</span>
+              <span>LINE: {settings.lineId}</span>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {/* Modal: Job Create / Edit */}
       <JobModal
@@ -667,12 +761,34 @@ export default function App() {
         </div>
       )}
 
+      {/* Modal: User Link Authentication (ต้องใส่ Username & Password ก่อนเข้าใช้งานลิงก์ที่แชร์) */}
+      <UserLinkLoginModal
+        isOpen={isUserLinkLoginOpen}
+        targetUser={pendingLinkUser}
+        allUsers={users}
+        onSuccess={(verifiedUser) => {
+          if (typeof sessionStorage !== 'undefined' && verifiedUser.linkToken) {
+            sessionStorage.setItem(`verified_user_link_${verifiedUser.linkToken}`, '1');
+          }
+          if (!users.some((u) => u.linkToken === verifiedUser.linkToken)) {
+            handleSaveUsers([verifiedUser, ...users]);
+          }
+          setIsUserLinkLoginOpen(false);
+          setPendingLinkUser(null);
+          handleSwitchToUser(verifiedUser);
+        }}
+        onRequestAdminLogin={() => {
+          setIsAdminPinModalOpen(true);
+        }}
+      />
+
       {/* Modal: Admin PIN Login (รหัสผ่าน 099-225-6601 ซ่อนรหัส) */}
       <AdminPinModal
         isOpen={isAdminPinModalOpen}
         onClose={() => setIsAdminPinModalOpen(false)}
         targetPassword="099-225-6601"
         onSuccess={() => {
+          setIsUserLinkLoginOpen(false);
           handleSwitchToAdmin();
           setCurrentTab('create_link');
           setIsAdminPinModalOpen(false);

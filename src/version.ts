@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
+// File: /src/version.ts | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.2.6';
-export const APP_REVISION = 'Rev 11';
+export const APP_VERSION = '1.2.7';
+export const APP_REVISION = 'Rev 12';
 export const APP_RELEASE_DATE = '2026-11-13';
 
 export interface RevisionRecord {
@@ -14,6 +14,23 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 12',
+    version: '1.2.7',
+    date: '2026-11-13',
+    description:
+      'แก้ไขระบบลิงก์ User ที่แชร์ให้ใช้งานข้ามอุปกรณ์ได้อย่างสมบูรณ์: เข้ารหัสข้อมูลบัญชีและวันหมดอายุลงในลิงก์ที่สร้าง, บังคับเปิดหน้าต่างใส่ Username และ Password ก่อนเข้าใช้งาน (ไม่สลับเป็น Admin และไม่วนหน้าจอบูตก่อนล็อกอิน), ลบข้อมูลร้านค้าในหน้าตั้งค่าและแถบ Footer ด้านล่างออกทั้งหมดในโหมด User, และเคลียร์ข้อความหัวเรื่องหน้าปกกับคำโปรยใต้หัวเรื่องไม่ให้มีค่าเดิมค้างไว้',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/components/UserLinkLoginModal.tsx',
+      'src/services/storage.ts',
+      'src/components/CreateUserLinkPage.tsx',
+      'src/components/AdminSettings.tsx',
+      'src/components/HeroCover.tsx',
+      'src/App.tsx',
+      'package.json',
+    ],
+  },
   {
     revision: 'Rev 11',
     version: '1.2.6',
