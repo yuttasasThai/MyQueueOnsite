@@ -1,3 +1,4 @@
+// File: /src/services/storage.ts | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
 import { RepairJob, ShopSettings, UserAccount, RenewalCode } from '../types';
 import {
   INITIAL_SHOP_SETTINGS,
@@ -10,6 +11,38 @@ const JOBS_KEY = 'repair_onsite_jobs_v1';
 const USERS_KEY = 'repair_onsite_users_v1';
 const CURRENT_AUTH_KEY = 'repair_onsite_auth_v1';
 
+function encodePayloadBase64Url(obj: unknown): string {
+  try {
+    const json = JSON.stringify(obj);
+    const bytes = new TextEncoder().encode(json);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function decodePayloadBase64Url<T>(encoded: string): T | null {
+  try {
+    let base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(bytes);
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function getBaseAppUrl(): string {
   if (typeof window !== 'undefined') {
     return window.location.origin + window.location.pathname;
@@ -17,9 +50,24 @@ export function getBaseAppUrl(): string {
   return '';
 }
 
-export function buildUserLink(linkToken: string): string {
+export function buildUserLink(userOrToken: UserAccount | string): string {
   const base = getBaseAppUrl();
-  return `${base}?user_token=${encodeURIComponent(linkToken)}`;
+  if (typeof userOrToken === 'string') {
+    return `${base}?user_token=${encodeURIComponent(userOrToken)}`;
+  }
+  const compactPayload = {
+    id: userOrToken.id,
+    n: userOrToken.name,
+    p: userOrToken.phone,
+    un: userOrToken.username,
+    pw: userOrToken.password,
+    t: userOrToken.linkToken,
+    e: userOrToken.expiresAt,
+    rc: userOrToken.renewalCode,
+  };
+  const encoded = encodePayloadBase64Url(compactPayload);
+  const url = `${base}?user_token=${encodeURIComponent(userOrToken.linkToken)}`;
+  return encoded ? `${url}&u=${encoded}` : url;
 }
 
 export function buildAdminLink(adminSecretToken?: string): string {
@@ -55,7 +103,7 @@ export function loadUsers(): UserAccount[] {
       const parsed: UserAccount[] = JSON.parse(raw);
       return parsed.map((u) => ({
         ...u,
-        userLink: buildUserLink(u.linkToken),
+        userLink: buildUserLink(u),
       }));
     }
   } catch (e) {
@@ -64,7 +112,7 @@ export function loadUsers(): UserAccount[] {
   // Initialize with links
   return INITIAL_USERS.map((u) => ({
     ...u,
-    userLink: buildUserLink(u.linkToken),
+    userLink: buildUserLink(u),
   }));
 }
 
@@ -138,29 +186,77 @@ export function saveCurrentAuth(auth: AuthSession | null): void {
   }
 }
 
-// Check URL param for user token (?user_token=xyz or ?token=xyz)
+// Check URL param for user token (?user_token=xyz or ?token=xyz) + optional encoded ?u=...
 export function checkUrlUserToken(users: UserAccount[]): {
+  hasUserParam: boolean;
   foundUser: UserAccount | null;
   isExpired: boolean;
   daysRemaining: number;
 } {
   if (typeof window === 'undefined') {
-    return { foundUser: null, isExpired: false, daysRemaining: 0 };
+    return { hasUserParam: false, foundUser: null, isExpired: false, daysRemaining: 0 };
   }
   const params = new URLSearchParams(window.location.search);
   const token = params.get('user_token') || params.get('token');
-  if (!token) {
-    return { foundUser: null, isExpired: false, daysRemaining: 0 };
+  const encodedUser = params.get('u');
+
+  if (!token && !encodedUser) {
+    return { hasUserParam: false, foundUser: null, isExpired: false, daysRemaining: 0 };
   }
 
-  const user = users.find((u) => u.linkToken === token);
-  if (!user) {
-    return { foundUser: null, isExpired: false, daysRemaining: 0 };
+  let decodedUser: UserAccount | null = null;
+  if (encodedUser) {
+    const payload = decodePayloadBase64Url<{
+      id?: string;
+      n?: string;
+      p?: string;
+      un?: string;
+      pw?: string;
+      t?: string;
+      e?: string;
+      rc?: string;
+    }>(encodedUser);
+    if (payload && (payload.t || token)) {
+      const linkToken = payload.t || token || '';
+      const reconstructed: UserAccount = {
+        id: payload.id || `usr_${linkToken}`,
+        name: payload.n || 'ผู้ใช้งาน',
+        phone: payload.p || '-',
+        username: payload.un || 'user',
+        password: payload.pw || '',
+        role: 'user',
+        linkToken,
+        userLink: window.location.href,
+        expiresAt: payload.e || new Date().toISOString(),
+        renewalCode: payload.rc || '',
+        renewalCodesList: [],
+        createdAt: new Date().toISOString(),
+      };
+      reconstructed.userLink = buildUserLink(reconstructed);
+      decodedUser = reconstructed;
+    }
   }
 
-  const expiryStatus = checkUserLinkExpiry(user.expiresAt);
+  const localUser = token ? users.find((u) => u.linkToken === token) || null : null;
+
+  let resolvedUser: UserAccount | null = localUser;
+  if (decodedUser && localUser) {
+    // Pick the more recently extended expiration date if already renewed locally
+    const localExp = new Date(localUser.expiresAt).getTime();
+    const urlExp = new Date(decodedUser.expiresAt).getTime();
+    resolvedUser = urlExp > localExp ? { ...localUser, ...decodedUser } : localUser;
+  } else if (decodedUser) {
+    resolvedUser = decodedUser;
+  }
+
+  if (!resolvedUser) {
+    return { hasUserParam: true, foundUser: null, isExpired: false, daysRemaining: 0 };
+  }
+
+  const expiryStatus = checkUserLinkExpiry(resolvedUser.expiresAt);
   return {
-    foundUser: user,
+    hasUserParam: true,
+    foundUser: resolvedUser,
     isExpired: expiryStatus.isExpired,
     daysRemaining: expiryStatus.daysRemaining,
   };
@@ -313,6 +409,7 @@ export function applyUserRenewal(
     expiresAt: baseDate.toISOString(),
     renewalCodesList: updatedCodesList,
   };
+  updatedUser.userLink = buildUserLink(updatedUser);
 
   const updatedAllUsers = users.map((u) => (u.id === user.id ? updatedUser : u));
   saveUsers(updatedAllUsers);
