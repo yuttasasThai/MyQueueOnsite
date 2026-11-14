@@ -1,4 +1,4 @@
-// File: /src/data/initialData.ts | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
+// File: /src/data/initialData.ts | Revision: Rev 15 | Version: 1.3.0 | Modified: 2026-11-13
 import { RepairJob, ShopSettings, UserAccount } from '../types';
 import icon1 from '../assets/icons/icon_1_893a5ecf.png';
 import icon2 from '../assets/icons/icon_2_8a307e4f.png';
@@ -101,6 +101,8 @@ export const INITIAL_SHOP_SETTINGS: ShopSettings = {
     includeCustomerPhone: true,
     includeMapLink: true,
   },
+  repairCategories: [],
+  technicians: [],
 };
 
 // Initial technician users with credentials, personal links, expiry dates, and renewal codes
