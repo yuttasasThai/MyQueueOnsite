@@ -21,6 +21,10 @@ import {
   Plus,
   Clock,
   Trash2,
+  Tag,
+  Wrench,
+  UserPlus,
+  X,
 } from 'lucide-react';
 import { ShopSettings, NotificationLog } from '../types';
 import { COVER_PRESETS, resolveCoverImage } from '../data/initialData';
@@ -58,6 +62,8 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
         includeCustomerPhone: true,
         includeMapLink: true,
       },
+      repairCategories: Array.isArray(s.repairCategories) ? s.repairCategories : [],
+      technicians: Array.isArray(s.technicians) ? s.technicians : [],
     };
     if (!isAdmin) {
       return {
@@ -71,10 +77,60 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
 
   const [formData, setFormData] = useState<ShopSettings>(() => sanitizeForRole(settings));
   const [isSaved, setIsSaved] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const [newTechnicianInput, setNewTechnicianInput] = useState('');
 
   useEffect(() => {
     setFormData(sanitizeForRole(settings));
   }, [settings, isAdmin]);
+
+  const handleAddCategory = () => {
+    const val = newCategoryInput.trim();
+    if (!val) return;
+    const current = formData.repairCategories || [];
+    if (current.includes(val)) {
+      setNewCategoryInput('');
+      return;
+    }
+    const updated: ShopSettings = { ...formData, repairCategories: [...current, val] };
+    setFormData(updated);
+    onSaveSettings(updated);
+    setNewCategoryInput('');
+  };
+
+  const handleDeleteCategory = (cat: string) => {
+    const current = formData.repairCategories || [];
+    const updated: ShopSettings = {
+      ...formData,
+      repairCategories: current.filter((c) => c !== cat),
+    };
+    setFormData(updated);
+    onSaveSettings(updated);
+  };
+
+  const handleAddTechnician = () => {
+    const val = newTechnicianInput.trim();
+    if (!val) return;
+    const current = formData.technicians || [];
+    if (current.includes(val)) {
+      setNewTechnicianInput('');
+      return;
+    }
+    const updated: ShopSettings = { ...formData, technicians: [...current, val] };
+    setFormData(updated);
+    onSaveSettings(updated);
+    setNewTechnicianInput('');
+  };
+
+  const handleDeleteTechnician = (tech: string) => {
+    const current = formData.technicians || [];
+    const updated: ShopSettings = {
+      ...formData,
+      technicians: current.filter((t) => t !== tech),
+    };
+    setFormData(updated);
+    onSaveSettings(updated);
+  };
 
   // LINE Notify Testing State
   const [showLineToken, setShowLineToken] = useState(false);
@@ -323,6 +379,135 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Card 1.5: หมวดงานซ่อม & ช่างผู้รับผิดชอบ (ผู้ใช้งานเพิ่ม/ลบเอง เริ่มต้นไม่มีค่าค้าง) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* หมวดงานซ่อม */}
+            <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                <Tag className="w-5 h-5 text-blue-600 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">หมวดงานซ่อม</h3>
+                  <p className="text-xs text-slate-500">
+                    เพิ่มหมวดงานซ่อมที่ใช้งานจริงในร้านด้วยตนเอง (ไม่มีหมวดเก่าค้างไว้)
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategoryInput}
+                  onChange={(e) => setNewCategoryInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddCategory();
+                    }
+                  }}
+                  placeholder="เช่น แอร์, ตู้เย็น, เครื่องซักผ้า..."
+                  className="flex-1 min-w-0 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCategory}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>เพิ่ม</span>
+                </button>
+              </div>
+
+              {(formData.repairCategories || []).length === 0 ? (
+                <div className="py-5 px-3 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-500">
+                  <Wrench className="w-6 h-6 mx-auto mb-1 text-slate-300" />
+                  ยังไม่มีหมวดงานซ่อม กรุณาพิมพ์เพิ่มด้านบน
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {(formData.repairCategories || []).map((cat) => (
+                    <span
+                      key={cat}
+                      className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold"
+                    >
+                      <span>{cat}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCategory(cat)}
+                        className="p-0.5 rounded-md text-blue-500 hover:text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+                        title={`ลบหมวด "${cat}"`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ช่างผู้รับผิดชอบ */}
+            <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                <UserPlus className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">ช่างผู้รับผิดชอบ</h3>
+                  <p className="text-xs text-slate-500">
+                    เพิ่มรายชื่อช่างผู้รับผิดชอบงานด้วยตนเอง สำหรับเลือกตอนรับคิวงาน
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTechnicianInput}
+                  onChange={(e) => setNewTechnicianInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddTechnician();
+                    }
+                  }}
+                  placeholder="พิมพ์ชื่อช่างผู้รับผิดชอบ..."
+                  className="flex-1 min-w-0 px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTechnician}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>เพิ่ม</span>
+                </button>
+              </div>
+
+              {(formData.technicians || []).length === 0 ? (
+                <div className="py-5 px-3 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-500">
+                  <UserPlus className="w-6 h-6 mx-auto mb-1 text-slate-300" />
+                  ยังไม่มีรายชื่อช่างผู้รับผิดชอบ กรุณาพิมพ์เพิ่มด้านบน
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {(formData.technicians || []).map((tech) => (
+                    <span
+                      key={tech}
+                      className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold"
+                    >
+                      <span>{tech}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTechnician(tech)}
+                        className="p-0.5 rounded-md text-emerald-600 hover:text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+                        title={`ลบ "${tech}"`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

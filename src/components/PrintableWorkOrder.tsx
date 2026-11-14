@@ -94,7 +94,7 @@ export const PrintableWorkOrder: React.FC<PrintableWorkOrderProps> = ({
             </div>
             <div className="sm:col-span-2">
               <span className="text-slate-500">ที่อยู่หน้างาน:</span>{' '}
-              <span className="text-slate-800">{job.customer.address}</span>
+              <span className="text-slate-800">{job.customer.address || '-'}</span>
             </div>
           </div>
         </div>
@@ -113,7 +113,7 @@ export const PrintableWorkOrder: React.FC<PrintableWorkOrderProps> = ({
               <td className="py-3 px-3 align-top font-semibold text-slate-900">
                 {job.product}
                 <div className="text-[11px] text-slate-500 font-normal mt-0.5">
-                  หมวดหมู่: {job.productCategory}
+                  หมวดงานซ่อม: {job.productCategory || '-'}
                 </div>
               </td>
               <td className="py-3 px-3 align-top text-slate-700 space-y-1">

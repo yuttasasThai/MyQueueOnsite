@@ -18,17 +18,21 @@ import {
   FileSpreadsheet,
   Download,
   Edit,
+  Edit3,
+  ArrowRight,
   User,
 } from 'lucide-react';
 import { RepairJob, RepairStatus } from '../types';
 import { getWarrantyStatus } from '../services/storage';
+import { StatusStepperIcons, getNextForwardStatus } from './StatusStepperIcons';
+import { ConfirmForwardStatusModal, EditStatusModal } from './StatusActionModals';
 
 interface QueueTableProps {
   jobs: RepairJob[];
   onSelectJob: (job: RepairJob) => void;
   onEditJob: (job: RepairJob) => void;
   onDeleteJob: (jobId: string) => void;
-  onStatusChange: (jobId: string, newStatus: RepairStatus) => void;
+  onStatusChange: (jobId: string, newStatus: RepairStatus, allowOverride?: boolean) => void;
   onPrintJob: (job: RepairJob) => void;
   isAdmin: boolean;
   currentUserId?: string;
@@ -60,6 +64,11 @@ export const QueueTable: React.FC<QueueTableProps> = ({
   const [selectedStatus, setSelectedStatus] = useState<string>(initialStatusFilter);
   const [selectedWarranty, setSelectedWarranty] = useState<string>('all');
   const [onlyMyJobs, setOnlyMyJobs] = useState(false);
+  const [pendingForwardAction, setPendingForwardAction] = useState<{
+    job: RepairJob;
+    nextStatus: RepairStatus;
+  } | null>(null);
+  const [editingStatusJob, setEditingStatusJob] = useState<RepairJob | null>(null);
 
   React.useEffect(() => {
     if (initialStatusFilter) {
@@ -155,7 +164,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       'เบอร์โทรศัพท์',
       'ที่อยู่ลูกค้า',
       'สินค้า/อุปกรณ์',
-      'หมวดหมู่',
+      'หมวดงานซ่อม',
       'รายละเอียดงานซ่อม',
       'อาการที่รับแจ้ง',
       'ประเมินค่าซ่อม(บาท)',
@@ -269,6 +278,15 @@ export const QueueTable: React.FC<QueueTableProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Real-time Circular Horizontal Status Icons Bar */}
+        <StatusStepperIcons
+          mode="summary"
+          variant="light"
+          jobs={jobs}
+          selectedStatus={selectedStatus}
+          onSelectStatus={setSelectedStatus}
+        />
 
         {/* Status Segmented Tabs Bar (Excel Sheet-like Tabs) */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs border-t border-slate-200 pt-2.5 scrollbar-none">
@@ -443,7 +461,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                           <span className="truncate">{job.customer.name}</span>
                         </div>
                         <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
-                          {job.customer.address}
+                          {job.customer.address || '-'}
                         </div>
                       </td>
 
@@ -507,28 +525,48 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         )}
                       </td>
 
-                      {/* สถานะ (Excel Dropdown) */}
+                      {/* สถานะ (เดินหน้าทางเดียว + ปุ่มแก้ไขสถานะ) */}
                       <td
-                        className="py-2 px-3 border-r border-slate-200 text-center"
+                        className="py-2 px-2.5 border-r border-slate-200 text-center min-w-[140px]"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="relative inline-block text-left w-full max-w-[120px]">
-                          <select
-                            value={job.status}
-                            onChange={(e) =>
-                              onStatusChange(job.id, e.target.value as RepairStatus)
-                            }
-                            className={`w-full text-xs font-bold px-2 py-1 rounded border appearance-none pr-5 cursor-pointer text-center focus:outline-none focus:ring-1 focus:ring-emerald-600 ${getStatusBadge(
+                        <div className="flex flex-col items-center gap-1">
+                          <span
+                            className={`inline-flex items-center justify-center w-full max-w-[125px] text-[11px] font-bold px-2 py-0.5 rounded border ${getStatusBadge(
                               job.status
                             )}`}
                           >
-                            {ALL_STATUSES.map((st) => (
-                              <option key={st} value={st}>
-                                {st}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-600" />
+                            {job.status}
+                          </span>
+
+                          <div className="flex items-center justify-center gap-1 w-full max-w-[130px]">
+                            {getNextForwardStatus(job.status) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = getNextForwardStatus(job.status);
+                                  if (next) {
+                                    setPendingForwardAction({ job, nextStatus: next });
+                                  }
+                                }}
+                                className="flex-1 inline-flex items-center justify-center gap-0.5 px-1.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                                title={`เดินหน้าสถานะเป็น "${getNextForwardStatus(job.status)}"`}
+                              >
+                                <ArrowRight className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">{getNextForwardStatus(job.status)}</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setEditingStatusJob(job)}
+                              className="inline-flex items-center justify-center gap-0.5 px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded text-[10px] font-bold transition-colors cursor-pointer whitespace-nowrap"
+                              title="แก้ไขสถานะงาน"
+                            >
+                              <Edit3 className="w-2.5 h-2.5 shrink-0" />
+                              <span>แก้ไขสถานะ</span>
+                            </button>
+                          </div>
                         </div>
                         {job.assignedUserName && (
                           <div className="text-[10px] text-slate-500 mt-0.5 truncate">
@@ -644,6 +682,21 @@ export const QueueTable: React.FC<QueueTableProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for One-Way Forward Status Progression */}
+      <ConfirmForwardStatusModal
+        job={pendingForwardAction?.job || null}
+        targetStatus={pendingForwardAction?.nextStatus || null}
+        onClose={() => setPendingForwardAction(null)}
+        onConfirm={(jobId, newStatus) => onStatusChange(jobId, newStatus, false)}
+      />
+
+      {/* Explicit Edit Status Modal */}
+      <EditStatusModal
+        job={editingStatusJob}
+        onClose={() => setEditingStatusJob(null)}
+        onSaveStatus={(jobId, newStatus) => onStatusChange(jobId, newStatus, true)}
+      />
     </div>
   );
 };

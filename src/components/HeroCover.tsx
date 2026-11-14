@@ -1,4 +1,4 @@
-// File: /src/components/HeroCover.tsx | Revision: Rev 11 | Version: 1.2.6 | Modified: 2026-11-13
+// File: /src/components/HeroCover.tsx | Revision: Rev 15 | Version: 1.3.0 | Modified: 2026-11-13
 import React, { useState } from 'react';
 import {
   Clock,
@@ -14,12 +14,13 @@ import {
 import { RepairJob, ShopSettings } from '../types';
 import { APP_VERSION, APP_REVISION } from '../version';
 import { DEFAULT_COVER_IMAGE, resolveCoverImage } from '../data/initialData';
+import { StatusStepperIcons } from './StatusStepperIcons';
 
 interface HeroCoverProps {
   jobs: RepairJob[];
   settings?: ShopSettings;
   onOpenNewJob: () => void;
-  onNavigateToQueue?: () => void;
+  onNavigateToQueue?: (statusFilter?: string) => void;
   isAdmin?: boolean;
   onOpenSettings?: () => void;
   onNavigateToDashboard?: () => void;
@@ -177,8 +178,16 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
         </div>
       )}
 
-      {/* Bottom Summary Boxes (แสดงสั้นๆ ตามภาพที่แนบ) */}
-      <div className="relative z-10 w-full max-w-sm mt-5 space-y-2.5 text-xs">
+      {/* Bottom Summary Boxes & Real-Time Status Icons */}
+      <div className="relative z-10 w-full max-w-md mt-4 space-y-2.5 text-xs">
+        {/* Real-time circular status icons row */}
+        <StatusStepperIcons
+          mode="summary"
+          variant="dark"
+          jobs={jobs}
+          onSelectStatus={(st) => onNavigateToQueue && onNavigateToQueue(st)}
+        />
+
         {/* คิวงานใหม่วันนี้ */}
         <div className="flex items-center justify-between bg-[#0e2a22] border border-emerald-500/40 px-4 py-2.5 rounded-xl text-emerald-200">
           <div className="flex items-center gap-2">
@@ -213,7 +222,7 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
           {onNavigateToQueue && (
             <button
               type="button"
-              onClick={onNavigateToQueue}
+              onClick={() => onNavigateToQueue('all')}
               className="text-xs text-blue-300 hover:text-white inline-flex items-center gap-1.5 font-semibold transition-colors hover:underline cursor-pointer"
             >
               <span>ดูคิวงานทั้งหมด ({jobs.length} งาน)</span>

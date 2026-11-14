@@ -1,3 +1,4 @@
+// File: /src/components/JobModal.tsx | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
 import React, { useState, useEffect } from 'react';
 import {
   Wrench,
@@ -8,34 +9,26 @@ import {
   MapPin,
   Calendar,
   Clock,
-  ShieldCheck,
   Save,
   X,
-  DollarSign,
   Tag,
+  Lock,
+  Edit3,
 } from 'lucide-react';
 import { RepairJob, RepairStatus, UserAccount } from '../types';
+import { getStatusFlowIndex } from './StatusStepperIcons';
 
 interface JobModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (job: RepairJob) => void;
   initialJob?: RepairJob | null;
-  users: UserAccount[];
+  users?: UserAccount[];
+  repairCategories?: string[];
+  technicians?: string[];
   nextQueueNumber: string;
+  onOpenSettings?: () => void;
 }
-
-const PRODUCT_CATEGORIES = [
-  'เครื่องปรับอากาศ (แอร์)',
-  'ตู้เย็น / ตู้แช่',
-  'เครื่องซักผ้า / เครื่องอบผ้า',
-  'ปั๊มน้ำ / แท้งค์น้ำ',
-  'เครื่องทำน้ำอุ่น / ระบบประปา',
-  'ทีวี / เครื่องเสียง',
-  'กล้องวงจรปิด / ระบบเครือข่าย',
-  'คอมพิวเตอร์ / โน้ตบุ๊ก / ปริ้นเตอร์',
-  'อุปกรณ์เครื่องใช้ไฟฟ้าทั่วไป',
-];
 
 const STATUS_OPTIONS: RepairStatus[] = [
   'รับงาน',
@@ -52,8 +45,10 @@ export const JobModal: React.FC<JobModalProps> = ({
   onClose,
   onSave,
   initialJob,
-  users,
+  repairCategories = [],
+  technicians = [],
   nextQueueNumber,
+  onOpenSettings,
 }) => {
   const isEditing = Boolean(initialJob);
 
@@ -61,7 +56,7 @@ export const JobModal: React.FC<JobModalProps> = ({
   const [queueNumber, setQueueNumber] = useState(nextQueueNumber);
   const [loggedDate, setLoggedDate] = useState(new Date().toISOString().split('T')[0]);
   const [product, setProduct] = useState('');
-  const [productCategory, setProductCategory] = useState(PRODUCT_CATEGORIES[0]);
+  const [productCategory, setProductCategory] = useState('');
   const [jobDetails, setJobDetails] = useState('');
   const [symptoms, setSymptoms] = useState('');
 
@@ -76,42 +71,44 @@ export const JobModal: React.FC<JobModalProps> = ({
   // Appointment & Costs
   const [appointmentDate, setAppointmentDate] = useState(new Date().toISOString().split('T')[0]);
   const [appointmentTime, setAppointmentTime] = useState('10:00 - 12:00');
-  const [estimatedCost, setEstimatedCost] = useState<number | string>(1500);
+  const [estimatedCost, setEstimatedCost] = useState<number | string>('');
   const [actualCost, setActualCost] = useState<number | string>('');
   const [status, setStatus] = useState<RepairStatus>('รับงาน');
+  const [isStatusEditUnlocked, setIsStatusEditUnlocked] = useState(false);
 
-  // Warranty
+  // Warranty & Technician
   const [warrantyDays, setWarrantyDays] = useState<number>(90);
-  const [assignedUserId, setAssignedUserId] = useState<string>('');
+  const [assignedTechName, setAssignedTechName] = useState<string>('');
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
+    setIsStatusEditUnlocked(false);
     if (initialJob) {
       setQueueNumber(initialJob.queueNumber);
       setLoggedDate(initialJob.loggedDate);
       setProduct(initialJob.product);
-      setProductCategory(initialJob.productCategory || PRODUCT_CATEGORIES[0]);
+      setProductCategory(initialJob.productCategory || '');
       setJobDetails(initialJob.jobDetails);
       setSymptoms(initialJob.symptoms);
       setCustomerName(initialJob.customer.name);
       setCustomerPhone(initialJob.customer.phone);
       setCustomerLineId(initialJob.customer.lineId || '');
       setCustomerFacebook(initialJob.customer.facebook || '');
-      setCustomerAddress(initialJob.customer.address);
+      setCustomerAddress(initialJob.customer.address || '');
       setMapCoordinates(initialJob.customer.mapCoordinates || '');
       setAppointmentDate(initialJob.appointmentDate);
       setAppointmentTime(initialJob.appointmentTime || '');
-      setEstimatedCost(initialJob.estimatedCost);
+      setEstimatedCost(initialJob.estimatedCost ? initialJob.estimatedCost : '');
       setActualCost(initialJob.actualCost !== null ? initialJob.actualCost : '');
       setStatus(initialJob.status);
       setWarrantyDays(initialJob.warrantyDays);
-      setAssignedUserId(initialJob.assignedUserId || '');
+      setAssignedTechName(initialJob.assignedUserName || '');
       setNotes(initialJob.notes || '');
     } else {
       setQueueNumber(nextQueueNumber);
       setLoggedDate(new Date().toISOString().split('T')[0]);
       setProduct('');
-      setProductCategory(PRODUCT_CATEGORIES[0]);
+      setProductCategory('');
       setJobDetails('');
       setSymptoms('');
       setCustomerName('');
@@ -122,16 +119,30 @@ export const JobModal: React.FC<JobModalProps> = ({
       setMapCoordinates('');
       setAppointmentDate(new Date().toISOString().split('T')[0]);
       setAppointmentTime('10:00 - 12:00');
-      setEstimatedCost(1500);
+      setEstimatedCost('');
       setActualCost('');
       setStatus('รับงาน');
       setWarrantyDays(90);
-      setAssignedUserId(users[0]?.id || '');
+      setAssignedTechName('');
       setNotes('');
     }
-  }, [initialJob, isOpen, nextQueueNumber, users]);
+  }, [initialJob, isOpen, nextQueueNumber]);
 
   if (!isOpen) return null;
+
+  const categoryChoices = Array.from(
+    new Set([
+      ...repairCategories,
+      ...(initialJob?.productCategory ? [initialJob.productCategory] : []),
+    ])
+  ).filter(Boolean);
+
+  const technicianChoices = Array.from(
+    new Set([
+      ...technicians,
+      ...(initialJob?.assignedUserName ? [initialJob.assignedUserName] : []),
+    ])
+  ).filter(Boolean);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,14 +153,14 @@ export const JobModal: React.FC<JobModalProps> = ({
     endDate.setDate(endDate.getDate() + Number(warrantyDays));
     const warrantyEndDate = endDate.toISOString().split('T')[0];
 
-    const assignedUser = users.find((u) => u.id === assignedUserId);
+    const cleanTech = assignedTechName.trim();
 
     const jobToSave: RepairJob = {
       id: initialJob ? initialJob.id : `job-${Date.now()}`,
       queueNumber: queueNumber.trim(),
       loggedDate,
       product: product.trim(),
-      productCategory,
+      productCategory: productCategory.trim(),
       jobDetails: jobDetails.trim(),
       symptoms: symptoms.trim(),
       customer: {
@@ -162,14 +173,14 @@ export const JobModal: React.FC<JobModalProps> = ({
       },
       appointmentDate,
       appointmentTime: appointmentTime.trim(),
-      estimatedCost: Number(estimatedCost) || 0,
+      estimatedCost: estimatedCost !== '' ? Number(estimatedCost) || 0 : 0,
       actualCost: actualCost !== '' ? Number(actualCost) : null,
       status,
       warrantyDays: Number(warrantyDays),
       warrantyStartDate: appointmentDate,
       warrantyEndDate,
-      assignedUserId,
-      assignedUserName: assignedUser ? assignedUser.name : undefined,
+      assignedUserId: cleanTech ? `tech_${cleanTech}` : undefined,
+      assignedUserName: cleanTech || undefined,
       notes: notes.trim(),
     };
 
@@ -177,7 +188,6 @@ export const JobModal: React.FC<JobModalProps> = ({
     onClose();
   };
 
-// File: /src/components/JobModal.tsx | Revision: Rev 6 | Version: 1.2.1 | Modified: 2026-11-11
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex justify-center items-start sm:items-center overflow-y-auto p-2 sm:p-4">
       <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 my-2 sm:my-6 max-h-[92vh] flex flex-col overflow-hidden">
@@ -234,20 +244,58 @@ export const JobModal: React.FC<JobModalProps> = ({
             </div>
 
             <div className="col-span-2 sm:col-span-1">
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                สถานะงาน *
-              </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as RepairStatus)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-              >
-                {STATUS_OPTIONS.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  {!isStatusEditUnlocked && <Lock className="w-3 h-3 text-emerald-600" />}
+                  <span>สถานะงาน *</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsStatusEditUnlocked(!isStatusEditUnlocked)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                    isStatusEditUnlocked
+                      ? 'bg-slate-100 text-slate-700 border-slate-300'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                  }`}
+                >
+                  <Edit3 className="w-2.5 h-2.5" />
+                  <span>{isStatusEditUnlocked ? 'ล็อกสถานะ' : 'แก้ไขสถานะ'}</span>
+                </button>
+              </div>
+
+              {!isEditing && !isStatusEditUnlocked ? (
+                <div className="w-full px-3 py-2 border border-blue-200 bg-blue-50/70 rounded-lg font-bold text-blue-800 flex items-center justify-between text-xs">
+                  <span>{status}</span>
+                  <span className="text-[10px] font-normal text-blue-600">เดินหน้าทางเดียว</span>
+                </div>
+              ) : (
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as RepairStatus)}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 font-medium ${
+                    isStatusEditUnlocked
+                      ? 'border-amber-400 bg-amber-50/40 focus:ring-amber-500 text-amber-900'
+                      : 'border-slate-200 focus:ring-blue-500'
+                  }`}
+                >
+                  {STATUS_OPTIONS.map((st) => {
+                    const baseStatus = initialJob ? initialJob.status : 'รับงาน';
+                    const baseIdx = getStatusFlowIndex(baseStatus);
+                    const optIdx = getStatusFlowIndex(st);
+                    const isBackward =
+                      !isStatusEditUnlocked &&
+                      st !== baseStatus &&
+                      (baseIdx === -1 || optIdx === -1 || optIdx < baseIdx);
+
+                    return (
+                      <option key={st} value={st} disabled={isBackward}>
+                        {st}
+                        {isBackward ? ' (ย้อนหลังไม่ได้)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
             </div>
           </div>
 
@@ -274,15 +322,34 @@ export const JobModal: React.FC<JobModalProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  หมวดหมู่สินค้า
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    หมวดงานซ่อม
+                  </label>
+                  {repairCategories.length === 0 && onOpenSettings && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSettings();
+                      }}
+                      className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      + เพิ่มในตั้งค่า
+                    </button>
+                  )}
+                </div>
                 <select
                   value={productCategory}
                   onChange={(e) => setProductCategory(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  {PRODUCT_CATEGORIES.map((cat) => (
+                  <option value="">
+                    {categoryChoices.length === 0
+                      ? '-- ยังไม่มีหมวดงานซ่อม (เพิ่มได้ที่เมนูตั้งค่า) --'
+                      : '-- เลือกหมวดงานซ่อม --'}
+                  </option>
+                  {categoryChoices.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
@@ -371,7 +438,7 @@ export const JobModal: React.FC<JobModalProps> = ({
                     type="text"
                     value={customerLineId}
                     onChange={(e) => setCustomerLineId(e.target.value)}
-                    placeholder="line_customer"
+                    placeholder="LINE ID ลูกค้า (หากมี)"
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
@@ -387,7 +454,7 @@ export const JobModal: React.FC<JobModalProps> = ({
                     type="text"
                     value={customerFacebook}
                     onChange={(e) => setCustomerFacebook(e.target.value)}
-                    placeholder="ชื่อเฟสบุ๊คลูกค้า"
+                    placeholder="ชื่อ Facebook ลูกค้า (หากมี)"
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
@@ -396,14 +463,13 @@ export const JobModal: React.FC<JobModalProps> = ({
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                ที่อยู่หน้างาน Onsite *
+                ที่อยู่หน้างาน Onsite
               </label>
               <textarea
                 rows={2}
-                required
                 value={customerAddress}
                 onChange={(e) => setCustomerAddress(e.target.value)}
-                placeholder="บ้านเลขที่ ซอย ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด..."
+                placeholder="บ้านเลขที่ ซอย ถนน ตำบล/แขวง อำเภอ/เขต จังหวัด... (หากมี)"
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none"
               />
             </div>
@@ -478,18 +544,36 @@ export const JobModal: React.FC<JobModalProps> = ({
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                ช่างผู้รับผิดชอบงาน
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  ช่างผู้รับผิดชอบงาน
+                </label>
+                {technicians.length === 0 && onOpenSettings && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSettings();
+                    }}
+                    className="text-[11px] font-semibold text-emerald-600 hover:underline cursor-pointer"
+                  >
+                    + เพิ่มในตั้งค่า
+                  </button>
+                )}
+              </div>
               <select
-                value={assignedUserId}
-                onChange={(e) => setAssignedUserId(e.target.value)}
+                value={assignedTechName}
+                onChange={(e) => setAssignedTechName(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
               >
-                <option value="">-- ยังไม่มอบหมายช่าง --</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.phone})
+                <option value="">
+                  {technicianChoices.length === 0
+                    ? '-- ยังไม่มีรายชื่อช่าง (เพิ่มในเมนูตั้งค่า) --'
+                    : '-- ยังไม่มอบหมายช่าง --'}
+                </option>
+                {technicianChoices.map((tech) => (
+                  <option key={tech} value={tech}>
+                    {tech}
                   </option>
                 ))}
               </select>
@@ -497,12 +581,12 @@ export const JobModal: React.FC<JobModalProps> = ({
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                ประเมินค่าซ่อม (บาท) *
+                ประเมินค่าซ่อม (บาท)
               </label>
               <input
                 type="number"
-                required
                 min="0"
+                placeholder="ประเมินค่าซ่อมเบื้องต้น"
                 value={estimatedCost}
                 onChange={(e) => setEstimatedCost(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"

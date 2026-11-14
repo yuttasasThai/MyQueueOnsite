@@ -1,4 +1,4 @@
-// File: /src/components/Dashboard.tsx | Revision: Rev 10 | Version: 1.2.5 | Modified: 2026-11-12
+// File: /src/components/Dashboard.tsx | Revision: Rev 15 | Version: 1.3.0 | Modified: 2026-11-13
 import React from 'react';
 import { RepairJob, ShopSettings, UserAccount } from '../types';
 import { HeroCover } from './HeroCover';
@@ -33,7 +33,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         jobs={jobs}
         settings={settings}
         onOpenNewJob={onOpenNewJob}
-        onNavigateToQueue={() => onNavigateToQueue()}
+        onNavigateToQueue={(status) => onNavigateToQueue(status)}
         onClearAllJobs={onClearAllJobs}
         isAdmin={isAdmin}
         onRequestAdminLogin={onRequestAdminLogin}
