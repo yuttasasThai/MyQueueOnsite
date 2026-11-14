@@ -1,4 +1,4 @@
-// File: /src/App.tsx | Revision: Rev 14 | Version: 1.2.9 | Modified: 2026-11-13
+// File: /src/App.tsx | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
@@ -15,8 +15,10 @@ import { UserLinkLoginModal } from './components/UserLinkLoginModal';
 import { RenewCodeModal } from './components/RenewCodeModal';
 import { DownloadSourceCodeModal } from './components/DownloadSourceCodeModal';
 import { ExpiredWarrantyModal } from './components/ExpiredWarrantyModal';
+import { DailyQueueAlarmModal } from './components/DailyQueueAlarmModal';
 import { AdminPinModal } from './components/AdminPinModal';
 import { BootLoadingScreen } from './components/BootLoadingScreen';
+import { isForwardTransitionAllowed } from './components/StatusStepperIcons';
 import {
   RepairJob,
   RepairStatus,
@@ -171,6 +173,31 @@ export default function App() {
     isOpenedViaUserLink ? Boolean(urlUserVerifiedInSession && !initialUrlUserCheck.isExpired) : false
   );
 
+  // Daily Pending Repair Queue Alarm ("วันนี้มีกี่คิวงาน กดยืนยันเพื่อรับทราบ" + หยุดเองเมื่อเลย 5 นาที)
+  const todayStr = new Date().toISOString().split('T')[0];
+  const dailyAckKey = `acknowledged_daily_queue_${todayStr}`;
+  const [isDailyQueueModalOpen, setIsDailyQueueModalOpen] = useState(false);
+  const [acknowledgedDailyJobIds, setAcknowledgedDailyJobIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(dailyAckKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const todayPendingJobs = jobs.filter(
+    (j) =>
+      j.appointmentDate === todayStr &&
+      j.status !== 'ซ่อมแล้ว' &&
+      j.status !== 'ปิดงาน' &&
+      j.status !== 'ยกเลิก'
+  );
+
+  const unacknowledgedDailyJobs = todayPendingJobs.filter(
+    (j) => !acknowledgedDailyJobIds.includes(j.id)
+  );
+
   // Expired Warranty Modal and Audio Alarm state
   const [isExpiredWarrantyModalOpen, setIsExpiredWarrantyModalOpen] = useState(false);
   const [acknowledgedExpiredJobIds, setAcknowledgedExpiredJobIds] = useState<string[]>(() => {
@@ -193,12 +220,44 @@ export default function App() {
     (j) => !acknowledgedExpiredJobIds.includes(j.id)
   );
 
-  // Automatically trigger the Expired Warranty Pop-up on load or when new expired jobs are detected
+  // Link Expiry Warning Modal for user
+  const [showExpiredWarning, setShowExpiredWarning] = useState<boolean>(
+    Boolean(isOpenedViaUserLink && initialUrlUserCheck.isExpired)
+  );
+
+  // Trigger Daily Pending Queue Alarm first (once boot/login/expired-link modals finish), then Expired Warranty Alarm
   useEffect(() => {
-    if (unacknowledgedExpiredJobs.length > 0) {
+    if (isBooting || isUserLinkLoginOpen || showExpiredWarning) return;
+
+    if (unacknowledgedDailyJobs.length > 0) {
+      setIsDailyQueueModalOpen(true);
+      return;
+    }
+
+    if (!isDailyQueueModalOpen && unacknowledgedExpiredJobs.length > 0) {
       setIsExpiredWarrantyModalOpen(true);
     }
-  }, [jobs]);
+  }, [
+    jobs,
+    isBooting,
+    isUserLinkLoginOpen,
+    showExpiredWarning,
+    isDailyQueueModalOpen,
+    unacknowledgedDailyJobs.length,
+    unacknowledgedExpiredJobs.length,
+  ]);
+
+  const handleAcknowledgeDailyQueue = () => {
+    const allTodayIds = todayPendingJobs.map((j) => j.id);
+    const merged = Array.from(new Set([...acknowledgedDailyJobIds, ...allTodayIds]));
+    setAcknowledgedDailyJobIds(merged);
+    try {
+      localStorage.setItem(dailyAckKey, JSON.stringify(merged));
+    } catch (e) {
+      console.warn('Failed to save acknowledged daily queue jobs', e);
+    }
+    setIsDailyQueueModalOpen(false);
+  };
 
   const handleAcknowledgeAllExpired = () => {
     const allExpiredIds = allExpiredWarrantyJobs.map((j) => j.id);
@@ -212,11 +271,6 @@ export default function App() {
     setIsExpiredWarrantyModalOpen(false);
   };
 
-  // Link Expiry Warning Modal for user
-  const [showExpiredWarning, setShowExpiredWarning] = useState<boolean>(
-    Boolean(isOpenedViaUserLink && initialUrlUserCheck.isExpired)
-  );
-
   // Find active User Account if logged in via specific User Link (avoid matching undefined === undefined)
   const activeUserAccount =
     auth.userId || auth.linkToken
@@ -227,7 +281,7 @@ export default function App() {
         )
       : undefined;
 
-  // Helper: Clear old mock jobs + old cover/shop defaults when a User Link starts for the first time
+  // Helper: Clear old mock jobs + old cover/shop/category/technician defaults when a User Link starts for the first time
   const initializeFreshUserLinkEnvironment = (linkToken: string) => {
     const firstInitKey = `user_link_cleared_first_time_${linkToken}`;
     if (!localStorage.getItem(firstInitKey)) {
@@ -251,6 +305,8 @@ export default function App() {
           facebook: '',
           facebookUrl: '',
           address: '',
+          repairCategories: [],
+          technicians: [],
         };
         saveShopSettings(cleaned);
         return cleaned;
@@ -352,9 +408,25 @@ export default function App() {
     );
   };
 
-  const handleStatusChange = (jobId: string, newStatus: RepairStatus) => {
+  const handleStatusChange = (
+    jobId: string,
+    newStatus: RepairStatus,
+    allowOverride = false
+  ) => {
     const targetJob = jobs.find((j) => j.id === jobId);
-    const previousStatus = targetJob?.status;
+    if (!targetJob) return;
+
+    const previousStatus = targetJob.status;
+    if (previousStatus === newStatus) return;
+
+    if (!allowOverride && !isForwardTransitionAllowed(previousStatus, newStatus)) {
+      showLineToast(
+        'ไม่สามารถย้อนสถานะงานได้',
+        'ระบบอัปเดตสถานะเดินหน้าทางเดียว หากต้องการแก้ไขให้กดปุ่ม "แก้ไขสถานะ"',
+        'info'
+      );
+      return;
+    }
 
     const updated = jobs.map((j) => {
       if (j.id === jobId) {
@@ -584,7 +656,10 @@ export default function App() {
           <Dashboard
             jobs={jobs}
             settings={settings}
-            onNavigateToQueue={() => setCurrentTab('queue')}
+            onNavigateToQueue={(statusFilter) => {
+              setStatusFilterForQueue(statusFilter || 'all');
+              setCurrentTab('queue');
+            }}
             onOpenNewJob={() => {
               setEditingJob(null);
               setIsJobModalOpen(true);
@@ -663,7 +738,10 @@ export default function App() {
         onSave={handleCreateOrUpdateJob}
         initialJob={editingJob}
         users={users}
+        repairCategories={settings.repairCategories || []}
+        technicians={settings.technicians || []}
         nextQueueNumber={nextQueueNumber}
+        onOpenSettings={() => setCurrentTab('settings')}
       />
 
       {/* Modal: Job Detail Drawer / Modal */}
@@ -816,9 +894,19 @@ export default function App() {
         />
       )}
 
+      {/* Modal: Daily Pending Queue Voice Alarm ("วันนี้มีกี่คิวงาน กดยืนยันเพื่อรับทราบ" หยุดเองเมื่อเลย 5 นาที) */}
+      <DailyQueueAlarmModal
+        isOpen={isDailyQueueModalOpen}
+        pendingJobs={todayPendingJobs}
+        onAcknowledge={handleAcknowledgeDailyQueue}
+        onSelectJob={(job) => {
+          setSelectedJob(job);
+        }}
+      />
+
       {/* Modal: Expired Warranty Alarm & Voice Alert Pop up (งานหมดระยะประกันพร้อมเสียงเตือนซ้ำๆ) */}
       <ExpiredWarrantyModal
-        isOpen={isExpiredWarrantyModalOpen}
+        isOpen={isExpiredWarrantyModalOpen && !isDailyQueueModalOpen}
         expiredJobs={allExpiredWarrantyJobs}
         onAcknowledgeAll={handleAcknowledgeAllExpired}
         onSelectJob={(job) => {

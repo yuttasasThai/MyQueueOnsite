@@ -53,6 +53,8 @@ export interface ShopSettings {
   adminPassword: string; // รหัสผ่านแอดมินสำหรับเข้าหน้าตั้งค่า
   adminSecretToken?: string; // โทเคนสำหรับสร้างลิงก์แอดมินโดยเฉพาะ
   lineNotify?: LineNotifySettings; // ตั้งค่าการแจ้งเตือน LINE Notify
+  repairCategories?: string[]; // หมวดงานซ่อมที่ผู้ใช้งานเพิ่มเองในหน้าตั้งค่า
+  technicians?: string[]; // รายชื่อช่างผู้รับผิดชอบที่ผู้ใช้งานเพิ่มเองในหน้าตั้งค่า
 }
 
 export interface LineNotifySettings {

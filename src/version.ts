@@ -1,9 +1,9 @@
-// File: /src/version.ts | Revision: Rev 14 | Version: 1.2.9 | Modified: 2026-11-13
+// File: /src/version.ts | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.2.9';
-export const APP_REVISION = 'Rev 14';
-export const APP_RELEASE_DATE = '2026-11-13';
+export const APP_VERSION = '1.3.1';
+export const APP_REVISION = 'Rev 16';
+export const APP_RELEASE_DATE = '2026-11-14';
 
 export interface RevisionRecord {
   revision: string;
@@ -14,6 +14,47 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 16',
+    version: '1.3.1',
+    date: '2026-11-14',
+    description:
+      'ปรับระบบอัปเดตสถานะงานให้เดินหน้าทางเดียว (รับงาน → กำลังไป → กำลังซ่อม → ซ่อมแล้ว → ปิดงาน) ห้ามย้อนหลัง พร้อมหน้าต่าง/แถบยืนยันก่อนเปลี่ยนสถานะเพื่อป้องกันการกดผิด และเพิ่มปุ่ม "แก้ไขสถานะ" สำหรับกรณีต้องการแก้ไขสถานะที่อัปเดตผิดพลาดหรือเปลี่ยนเป็นสถานะพิเศษ (นัดหมายต่อ/ยกเลิก) ทั้งในหน้ารายละเอียดงาน ตารางคิวงาน และฟอร์มแก้ไขงาน',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/components/StatusStepperIcons.tsx',
+      'src/components/StatusActionModals.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/components/QueueTable.tsx',
+      'src/components/JobModal.tsx',
+      'src/App.tsx',
+      'package.json',
+    ],
+  },
+  {
+    revision: 'Rev 15',
+    version: '1.3.0',
+    date: '2026-11-13',
+    description:
+      'เพิ่มระบบแจ้งเตือนคิวงานประจำวันที่ยังไม่ได้ซ่อมด้วยเสียงพูดวนซ้ำ ("วันนี้มี X คิวงาน กดยืนยันเพื่อรับทราบ") พร้อมตัดเสียงอัตโนมัติใน 5 นาที, เพิ่มแถบไอคอนวงกลมบอกสถานะรับงานแบบเรียลไทม์ในแนวนอนที่หน้าแดชบอร์ด ตารางคิวงาน และหน้ารายละเอียดงาน, เปลี่ยนหมวดหมู่สินค้าเป็น "หมวดงานซ่อม" และ "ช่างผู้รับผิดชอบ" ให้ผู้ใช้งานเพิ่มเองในเมนูตั้งค่า (เริ่มต้นเป็นค่าว่าง), และปรับฟอร์มรับงานให้ LINE/Facebook/ที่อยู่ระบุ "(หากมี)" ไม่บังคับกรอก พร้อมประเมินค่าซ่อมไม่บังคับกรอกแสดง "ประเมินค่าซ่อมเบื้องต้น"',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/types.ts',
+      'src/data/initialData.ts',
+      'src/services/soundAlarm.ts',
+      'src/components/DailyQueueAlarmModal.tsx',
+      'src/components/StatusStepperIcons.tsx',
+      'src/components/HeroCover.tsx',
+      'src/components/Dashboard.tsx',
+      'src/components/QueueTable.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/components/AdminSettings.tsx',
+      'src/components/JobModal.tsx',
+      'src/components/PrintableWorkOrder.tsx',
+      'src/App.tsx',
+      'package.json',
+    ],
+  },
   {
     revision: 'Rev 14',
     version: '1.2.9',
