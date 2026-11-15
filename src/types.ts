@@ -16,6 +16,15 @@ export interface CustomerInfo {
   mapCoordinates?: string; // e.g. "13.7563,100.5018" or address for Google Maps
 }
 
+export interface StatusPhotoItem {
+  id: string;
+  dataUrl: string;
+  createdAt: string;
+  note?: string;
+}
+
+export type StatusPhotosMap = Partial<Record<RepairStatus, StatusPhotoItem[]>>;
+
 export interface RepairJob {
   id: string;
   queueNumber: string; // คิวงาน เช่น Q-01, Q-02
@@ -35,7 +44,9 @@ export interface RepairJob {
   warrantyEndDate: string; // วันที่สิ้นสุดประกัน YYYY-MM-DD
   assignedUserId?: string; // ช่างที่รับผิดชอบ
   assignedUserName?: string;
-  photos?: string[]; // รูปถ่ายหน้างาน
+  photos?: string[]; // รูปถ่ายหน้างาน (legacy)
+  statusPhotos?: StatusPhotosMap; // รูปถ่าย/แนบรูปแยกตามแต่ละสถานะของคิวงาน
+  closedAt?: string; // วันที่ปิดงานซ่อม YYYY-MM-DD
   notes?: string;
 }
 

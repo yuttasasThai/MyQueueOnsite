@@ -1,9 +1,9 @@
-// File: /src/version.ts | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
+// File: /src/version.ts | Revision: Rev 17 | Version: 1.4.0 | Modified: 2026-11-15
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.3.1';
-export const APP_REVISION = 'Rev 16';
-export const APP_RELEASE_DATE = '2026-11-14';
+export const APP_VERSION = '1.4.0';
+export const APP_REVISION = 'Rev 17';
+export const APP_RELEASE_DATE = '2026-11-15';
 
 export interface RevisionRecord {
   revision: string;
@@ -14,6 +14,27 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 17',
+    version: '1.4.0',
+    date: '2026-11-15',
+    description:
+      'ปรับให้กดอัปเดตสถานะที่ไอคอนได้ทันทีใน 1 คลิก, เพิ่มหน้าต่าง Pop-up ถ่ายรูปและแนบรูปแยกตามแต่ละสถานะและคิวงาน (โดยไม่แสดงรูปในตารางคิวงาน), เพิ่ม Pop-up บังคับกรอกยอดค่าซ่อมจริงและระยะประกันก่อนกดบันทึกเมื่อถึงสถานะปิดงานซ่อม, และเพิ่มตาราง Excel แยกสำหรับ "สรุปงานที่ปิดแล้ว (Excel)" พร้อมส่งออกไฟล์ CSV สรุปยอดรวม',
+    modifiedFiles: [
+      'src/version.ts',
+      'src/types.ts',
+      'src/services/imageUtils.ts',
+      'src/components/JobStatusPhotosModal.tsx',
+      'src/components/CloseJobModal.tsx',
+      'src/components/StatusStepperIcons.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/components/QueueTable.tsx',
+      'src/components/HeroCover.tsx',
+      'src/components/JobModal.tsx',
+      'src/App.tsx',
+      'package.json',
+    ],
+  },
   {
     revision: 'Rev 16',
     version: '1.3.1',

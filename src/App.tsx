@@ -18,11 +18,14 @@ import { ExpiredWarrantyModal } from './components/ExpiredWarrantyModal';
 import { DailyQueueAlarmModal } from './components/DailyQueueAlarmModal';
 import { AdminPinModal } from './components/AdminPinModal';
 import { BootLoadingScreen } from './components/BootLoadingScreen';
+import { CloseJobModal, CloseJobPayload } from './components/CloseJobModal';
+import { JobStatusPhotosModal } from './components/JobStatusPhotosModal';
 import { isForwardTransitionAllowed } from './components/StatusStepperIcons';
 import {
   RepairJob,
   RepairStatus,
   ShopSettings,
+  StatusPhotoItem,
   UserAccount,
   ViewTab,
 } from './types';
@@ -132,6 +135,7 @@ export default function App() {
   // Navigation tab
   const [currentTab, setCurrentTab] = useState<ViewTab>('dashboard');
   const [statusFilterForQueue, setStatusFilterForQueue] = useState<string>('all');
+  const [queueSheetForQueue, setQueueSheetForQueue] = useState<'all' | 'closed'>('all');
 
   // LINE Notification Toast state
   const [lineToast, setLineToast] = useState<{
@@ -157,6 +161,11 @@ export default function App() {
   const [editingJob, setEditingJob] = useState<RepairJob | null>(null);
   const [selectedJob, setSelectedJob] = useState<RepairJob | null>(null);
   const [printingJob, setPrintingJob] = useState<RepairJob | null>(null);
+  const [closingJobTarget, setClosingJobTarget] = useState<RepairJob | null>(null);
+  const [photoModalState, setPhotoModalState] = useState<{
+    jobId: string;
+    initialStatus?: RepairStatus;
+  } | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRenewModalOpen, setIsRenewModalOpen] = useState(false);
   const [isDownloadCodeModalOpen, setIsDownloadCodeModalOpen] = useState(false);
@@ -428,12 +437,20 @@ export default function App() {
       return;
     }
 
+    // Requirement: เมื่อถึงสถานะปิดงานซ่อม ให้ใส่ยอดค่าซ่อมและระยะประกัน ก่อนกดบันทึก
+    if (newStatus === 'ปิดงาน') {
+      setClosingJobTarget(targetJob);
+      return;
+    }
+
     const updated = jobs.map((j) => {
       if (j.id === jobId) {
         // If status becomes completed, update warranty start date to today
         let warrantyEndDate = j.warrantyEndDate;
-        if (newStatus === 'ซ่อมแล้ว' || newStatus === 'ปิดงาน') {
+        let warrantyStartDate = j.warrantyStartDate;
+        if (newStatus === 'ซ่อมแล้ว') {
           const now = new Date();
+          warrantyStartDate = now.toISOString().split('T')[0];
           const end = new Date(now);
           end.setDate(end.getDate() + j.warrantyDays);
           warrantyEndDate = end.toISOString().split('T')[0];
@@ -441,6 +458,7 @@ export default function App() {
         return {
           ...j,
           status: newStatus,
+          warrantyStartDate,
           warrantyEndDate,
         };
       }
@@ -489,6 +507,97 @@ export default function App() {
         .catch((err) => {
           console.error('Failed to send status update to LINE Notify', err);
         });
+    }
+  };
+
+  const handleConfirmCloseJob = (jobId: string, payload: CloseJobPayload) => {
+    const targetJob = jobs.find((j) => j.id === jobId);
+    if (!targetJob) return;
+    const previousStatus = targetJob.status;
+
+    const updated = jobs.map((j) => {
+      if (j.id !== jobId) return j;
+      const existingClosingPhotos = j.statusPhotos?.['ปิดงาน'] || [];
+      const mergedStatusPhotos =
+        payload.closingPhotos.length > 0
+          ? {
+              ...(j.statusPhotos || {}),
+              ปิดงาน: [...existingClosingPhotos, ...payload.closingPhotos],
+            }
+          : j.statusPhotos;
+
+      return {
+        ...j,
+        status: 'ปิดงาน' as RepairStatus,
+        actualCost: payload.actualCost,
+        warrantyDays: payload.warrantyDays,
+        warrantyStartDate: payload.warrantyStartDate,
+        warrantyEndDate: payload.warrantyEndDate,
+        closedAt: payload.closedAt,
+        statusPhotos: mergedStatusPhotos,
+        notes: payload.notes !== undefined ? payload.notes : j.notes,
+      };
+    });
+
+    handleSaveJobs(updated);
+    const updatedJob = updated.find((j) => j.id === jobId);
+    if (selectedJob?.id === jobId && updatedJob) {
+      setSelectedJob(updatedJob);
+    }
+
+    showLineToast(
+      `ปิดงานคิว ${targetJob.queueNumber} สำเร็จ ✅`,
+      `บันทึกค่าซ่อมจริง ฿${payload.actualCost.toLocaleString()} และจัดเก็บลงตารางสรุปงานที่ปิดแล้ว (Excel) เรียบร้อย`,
+      'success'
+    );
+
+    if (
+      updatedJob &&
+      settings.lineNotify?.enabled &&
+      settings.lineNotify?.notifyOnStatusChange &&
+      settings.lineNotify?.token?.trim()
+    ) {
+      const msg = formatStatusChangeNotification(
+        updatedJob,
+        previousStatus,
+        'ปิดงาน',
+        settings
+      );
+      sendLineNotify(settings.lineNotify.token, msg)
+        .then((res) => {
+          addNotificationLog({
+            type: 'status_change',
+            jobQueueNumber: updatedJob.queueNumber,
+            jobProduct: updatedJob.product,
+            status: 'ปิดงาน',
+            success: res.success,
+            message: `ปิดงานคิว ${updatedJob.queueNumber} (฿${payload.actualCost.toLocaleString()})`,
+            responseMessage: res.message,
+          });
+        })
+        .catch((err) => console.error('Failed to send close job LINE notify', err));
+    }
+  };
+
+  const handleUpdateJobStatusPhotos = (
+    jobId: string,
+    status: RepairStatus,
+    photosForStatus: StatusPhotoItem[]
+  ) => {
+    const updated = jobs.map((j) => {
+      if (j.id !== jobId) return j;
+      return {
+        ...j,
+        statusPhotos: {
+          ...(j.statusPhotos || {}),
+          [status]: photosForStatus,
+        },
+      };
+    });
+    handleSaveJobs(updated);
+    const updatedJob = updated.find((j) => j.id === jobId);
+    if (selectedJob?.id === jobId && updatedJob) {
+      setSelectedJob(updatedJob);
     }
   };
 
@@ -657,7 +766,13 @@ export default function App() {
             jobs={jobs}
             settings={settings}
             onNavigateToQueue={(statusFilter) => {
-              setStatusFilterForQueue(statusFilter || 'all');
+              if (statusFilter === 'closed_sheet') {
+                setQueueSheetForQueue('closed');
+                setStatusFilterForQueue('all');
+              } else {
+                setQueueSheetForQueue('all');
+                setStatusFilterForQueue(statusFilter || 'all');
+              }
               setCurrentTab('queue');
             }}
             onOpenNewJob={() => {
@@ -682,9 +797,13 @@ export default function App() {
             onDeleteJob={handleDeleteJob}
             onStatusChange={handleStatusChange}
             onPrintJob={(job) => setPrintingJob(job)}
+            onOpenStatusPhotos={(job, status) =>
+              setPhotoModalState({ jobId: job.id, initialStatus: status || job.status })
+            }
             isAdmin={isAdmin}
             currentUserId={auth.userId}
             initialStatusFilter={statusFilterForQueue}
+            initialSheet={queueSheetForQueue}
           />
         )}
 
@@ -755,8 +874,26 @@ export default function App() {
           setIsJobModalOpen(true);
         }}
         onPrint={(job) => setPrintingJob(job)}
+        onOpenStatusPhotos={(job, status) =>
+          setPhotoModalState({ jobId: job.id, initialStatus: status || job.status })
+        }
         settings={settings}
         isAdmin={isAdmin}
+      />
+
+      {/* Modal: Per-Queue & Per-Status Photo Capture / Attachment */}
+      <JobStatusPhotosModal
+        job={photoModalState ? jobs.find((j) => j.id === photoModalState.jobId) || null : null}
+        initialStatus={photoModalState?.initialStatus}
+        onClose={() => setPhotoModalState(null)}
+        onUpdateJobPhotos={handleUpdateJobStatusPhotos}
+      />
+
+      {/* Modal: Close Job (กรอกยอดค่าซ่อมจริง + ระยะประกัน ก่อนบันทึกปิดงาน) */}
+      <CloseJobModal
+        job={closingJobTarget}
+        onClose={() => setClosingJobTarget(null)}
+        onConfirmCloseJob={handleConfirmCloseJob}
       />
 
       {/* Modal: Printable Work Order / Delivery Sheet */}
