@@ -198,6 +198,19 @@ class WarrantyAlarmService {
     }
   }
 
+  public playOnce(speechText?: string): void {
+    const ctx = this.getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    this.playAlertBeep();
+    if (speechText) {
+      window.setTimeout(() => {
+        this.speakAnnouncement(speechText);
+      }, 500);
+    }
+  }
+
   public isPlaying(): boolean {
     return this.isAlarmPlaying;
   }
