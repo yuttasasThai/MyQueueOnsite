@@ -1,5 +1,5 @@
-// File: /src/App.tsx | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
-import React, { useState, useEffect } from 'react';
+// File: /src/App.tsx | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
 import { Dashboard } from './components/Dashboard';
@@ -16,6 +16,8 @@ import { RenewCodeModal } from './components/RenewCodeModal';
 import { DownloadSourceCodeModal } from './components/DownloadSourceCodeModal';
 import { ExpiredWarrantyModal } from './components/ExpiredWarrantyModal';
 import { DailyQueueAlarmModal } from './components/DailyQueueAlarmModal';
+import { AppointmentReminderModal } from './components/AppointmentReminderModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminPinModal } from './components/AdminPinModal';
 import { BootLoadingScreen } from './components/BootLoadingScreen';
 import { CloseJobModal, CloseJobPayload } from './components/CloseJobModal';
@@ -46,11 +48,26 @@ import {
   getWarrantyStatus,
 } from './services/storage';
 import {
-  sendLineNotify,
+  sendLineNotification,
+  isLineConfigured,
+  buildThirtyMinReminderFlexMessage,
+  formatThirtyMinReminderText,
   formatNewJobNotification,
   formatStatusChangeNotification,
   addNotificationLog,
+  fetchLineMessagingStatus,
+  postServerAlarmAck,
+  syncSchedulesAndLineConfigToServer,
 } from './services/lineNotify';
+import {
+  AppointmentReminderSchedule,
+  buildUpcomingAppointmentSchedules,
+  getDueAppointmentReminders,
+  loadAcknowledgedAppointmentKeys,
+  saveAcknowledgedAppointmentKey,
+  showAppointmentSystemNotification,
+  syncSchedulesToServiceWorker,
+} from './services/appointmentAlarm';
 import { ShieldAlert, AlertTriangle, KeyRound, RotateCcw, BellRing, CheckCircle, Phone, Lock } from 'lucide-react';
 
 export default function App() {
@@ -234,9 +251,236 @@ export default function App() {
     Boolean(isOpenedViaUserLink && initialUrlUserCheck.isExpired)
   );
 
-  // Trigger Daily Pending Queue Alarm first (once boot/login/expired-link modals finish), then Expired Warranty Alarm
+  // 30-Minute-Before Appointment Reminders (Background SW + Voice Alarm + Repeating LINE Messaging API)
+  const [dueThirtyMinItems, setDueThirtyMinItems] = useState<
+    { job: RepairJob; schedule: AppointmentReminderSchedule }[]
+  >([]);
+  const [lineSendCount, setLineSendCount] = useState(0);
+  const notifiedThirtyMinKeysRef = useRef<Set<string>>(new Set());
+  const lineLastSentAtRef = useRef<Record<string, number>>({});
+
+  const dispatchLineThirtyMinReminder = useCallback(
+    async (
+      items: { job: RepairJob; schedule: AppointmentReminderSchedule }[],
+      force = false
+    ) => {
+      if (items.length === 0) return;
+      if (!isLineConfigured(settings.lineNotify)) return;
+      if (settings.lineNotify?.notifyBefore30Min === false) return;
+
+      const repeatMinutes = Math.max(1, Number(settings.lineNotify?.repeatIntervalMinutes) || 2);
+      const repeatMs = repeatMinutes * 60 * 1000;
+      const now = Date.now();
+      const appBaseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+
+      for (const { job, schedule } of items) {
+        const lastSent = lineLastSentAtRef.current[schedule.ackKey] || 0;
+        if (!force && now - lastSent < repeatMs - 10000) {
+          continue;
+        }
+        lineLastSentAtRef.current[schedule.ackKey] = now;
+        const flexMsg = buildThirtyMinReminderFlexMessage(job, schedule, appBaseUrl);
+        const textMsg = formatThirtyMinReminderText(job, schedule, settings);
+
+        const res = await sendLineNotification(settings.lineNotify, textMsg, [flexMsg]);
+        setLineSendCount((c) => c + 1);
+        addNotificationLog({
+          type: 'reminder_30m',
+          jobQueueNumber: job.queueNumber,
+          jobProduct: job.product,
+          status: job.status,
+          success: res.success,
+          message: `เตือนก่อนนัด 30 นาที คิว ${job.queueNumber} (${job.appointmentTime})`,
+          responseMessage: res.message,
+        });
+      }
+    },
+    [settings]
+  );
+
+  const refreshDueThirtyMinReminders = useCallback(() => {
+    const due = getDueAppointmentReminders(jobs);
+    setDueThirtyMinItems(due);
+    for (const item of due) {
+      if (!notifiedThirtyMinKeysRef.current.has(item.schedule.ackKey)) {
+        notifiedThirtyMinKeysRef.current.add(item.schedule.ackKey);
+        showAppointmentSystemNotification(item.schedule);
+      }
+    }
+    if (due.length > 0 && !isBooting && !isUserLinkLoginOpen && !showExpiredWarning) {
+      dispatchLineThirtyMinReminder(due, false);
+    }
+  }, [jobs, isBooting, isUserLinkLoginOpen, showExpiredWarning, dispatchLineThirtyMinReminder]);
+
+  // Sync upcoming schedules to Service Worker & Express/Server LINE scheduler whenever jobs or settings change
+  useEffect(() => {
+    syncSchedulesToServiceWorker(jobs);
+    const upcomingSchedules = buildUpcomingAppointmentSchedules(jobs);
+    const ackedKeys = loadAcknowledgedAppointmentKeys();
+    syncSchedulesAndLineConfigToServer(upcomingSchedules, settings, ackedKeys).then((res) => {
+      if (res?.acknowledgedKeys) {
+        let changed = false;
+        const localSet = new Set(loadAcknowledgedAppointmentKeys());
+        for (const k of res.acknowledgedKeys) {
+          if (!localSet.has(k)) {
+            saveAcknowledgedAppointmentKey(k);
+            changed = true;
+          }
+        }
+        if (changed) {
+          setDueThirtyMinItems(getDueAppointmentReminders(jobs));
+        }
+      }
+    });
+    refreshDueThirtyMinReminders();
+
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleControllerChange = () => {
+      syncSchedulesToServiceWorker(jobs);
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+    };
+  }, [jobs, settings, refreshDueThirtyMinReminders]);
+
+  // Poll every 15s for 30-min reminders + sync server LINE acks rapidly (every 4s while alarm is active)
+  useEffect(() => {
+    const reminderIntervalId = window.setInterval(() => {
+      refreshDueThirtyMinReminders();
+    }, 15000);
+
+    const ackPollMs = dueThirtyMinItems.length > 0 ? 4000 : 20000;
+    const ackPollId = window.setInterval(async () => {
+      const status = await fetchLineMessagingStatus();
+      if (!status) return;
+      if (status.lastSentAt) {
+        for (const [k, ts] of Object.entries(status.lastSentAt)) {
+          if ((ts as number) > (lineLastSentAtRef.current[k] || 0)) {
+            lineLastSentAtRef.current[k] = ts as number;
+          }
+        }
+      }
+      if (Array.isArray(status.acknowledgedKeys) && status.acknowledgedKeys.length > 0) {
+        const localSet = new Set(loadAcknowledgedAppointmentKeys());
+        let stoppedActiveAlarm = false;
+        const activeAckKeys = new Set(dueThirtyMinItems.map((d) => d.schedule.ackKey));
+        for (const k of status.acknowledgedKeys) {
+          if (!localSet.has(k)) {
+            saveAcknowledgedAppointmentKey(k);
+            if (activeAckKeys.has(k)) {
+              stoppedActiveAlarm = true;
+            }
+          }
+        }
+        if (stoppedActiveAlarm) {
+          refreshDueThirtyMinReminders();
+          showLineToast(
+            'ยืนยันรับทราบจาก LINE เรียบร้อย ✅',
+            'ระบบได้รับคำสั่งยืนยันจาก LINE และปิดเสียงเตือนให้แล้ว',
+            'success'
+          );
+        }
+      }
+    }, ackPollMs);
+
+    const handleVisibilityOrFocus = () => {
+      if (!document.hidden) {
+        refreshDueThirtyMinReminders();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      window.clearInterval(reminderIntervalId);
+      window.clearInterval(ackPollId);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [dueThirtyMinItems, refreshDueThirtyMinReminders]);
+
+  // Listen for Service Worker notification clicks & quick-ack actions
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || !data.type) return;
+
+      if (data.type === 'ACK_FROM_SW' && data.ackKey) {
+        saveAcknowledgedAppointmentKey(data.ackKey);
+        postServerAlarmAck([data.ackKey], 'app');
+        refreshDueThirtyMinReminders();
+      } else if (data.type === 'OPEN_ALARM_FROM_SW') {
+        refreshDueThirtyMinReminders();
+        if (data.jobId) {
+          const target = jobs.find((j) => j.id === data.jobId);
+          if (target) {
+            setSelectedJob(target);
+          }
+        }
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, [jobs, refreshDueThirtyMinReminders]);
+
+  // Handle ?ack_alarm=... (tapped confirm URI in LINE) and ?alarm_job=... (tapped OS notification)
   useEffect(() => {
     if (isBooting || isUserLinkLoginOpen || showExpiredWarning) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ackParam = params.get('ack_alarm');
+      const alarmJobId = params.get('alarm_job');
+      let modifiedUrl = false;
+
+      if (ackParam) {
+        saveAcknowledgedAppointmentKey(ackParam);
+        postServerAlarmAck([ackParam], 'line_uri');
+        refreshDueThirtyMinReminders();
+        showLineToast(
+          'ยืนยันรับทราบจาก LINE เรียบร้อย ✅',
+          'ปิดเสียงเตือนและการส่งเตือนซ้ำสำหรับคิวงานนี้แล้ว',
+          'success'
+        );
+        params.delete('ack_alarm');
+        modifiedUrl = true;
+      }
+
+      if (alarmJobId) {
+        refreshDueThirtyMinReminders();
+        const found = jobs.find((j) => j.id === alarmJobId);
+        if (found) {
+          setSelectedJob(found);
+        }
+        params.delete('alarm_job');
+        modifiedUrl = true;
+      }
+
+      if (modifiedUrl) {
+        const nextSearch = params.toString();
+        const nextUrl = window.location.pathname + (nextSearch ? `?${nextSearch}` : '') + window.location.hash;
+        window.history.replaceState({}, '', nextUrl);
+      }
+    } catch {}
+  }, [isBooting, isUserLinkLoginOpen, showExpiredWarning, jobs, refreshDueThirtyMinReminders]);
+
+  const handleAcknowledgeThirtyMinAlarms = (ackKeys: string[]) => {
+    for (const key of ackKeys) {
+      saveAcknowledgedAppointmentKey(key);
+    }
+    postServerAlarmAck(ackKeys, 'app');
+    refreshDueThirtyMinReminders();
+    syncSchedulesToServiceWorker(jobs);
+  };
+
+  // Trigger 30-min-before alarm highest priority; otherwise Daily Pending Queue Alarm, then Expired Warranty Alarm
+  useEffect(() => {
+    if (isBooting || isUserLinkLoginOpen || showExpiredWarning) return;
+    if (dueThirtyMinItems.length > 0) return;
 
     if (unacknowledgedDailyJobs.length > 0) {
       setIsDailyQueueModalOpen(true);
@@ -251,6 +495,7 @@ export default function App() {
     isBooting,
     isUserLinkLoginOpen,
     showExpiredWarning,
+    dueThirtyMinItems.length,
     isDailyQueueModalOpen,
     unacknowledgedDailyJobs.length,
     unacknowledgedExpiredJobs.length,
@@ -356,14 +601,13 @@ export default function App() {
     } else {
       updated = [job, ...jobs];
 
-      // Automatically trigger LINE Notify for new appointments if enabled
+      // Automatically trigger LINE Messaging API for new appointments if enabled
       if (
-        settings.lineNotify?.enabled &&
-        settings.lineNotify?.notifyOnNewJob &&
-        settings.lineNotify?.token?.trim()
+        isLineConfigured(settings.lineNotify) &&
+        settings.lineNotify?.notifyOnNewJob
       ) {
         const msg = formatNewJobNotification(job, settings);
-        sendLineNotify(settings.lineNotify.token, msg)
+        sendLineNotification(settings.lineNotify, msg)
           .then((res) => {
             addNotificationLog({
               type: 'new_job',
@@ -376,20 +620,20 @@ export default function App() {
             });
             if (res.success) {
               showLineToast(
-                'ส่ง LINE Notify นัดหมายใหม่ 🔔',
+                'ส่ง LINE นัดหมายใหม่ 🔔',
                 `คิวงาน ${job.queueNumber} (${job.customer.name}) แจ้งเตือนเข้า LINE เรียบร้อยแล้ว`,
                 'success'
               );
             } else {
               showLineToast(
-                'LINE Notify ไม่สามารถส่งได้',
+                'ส่ง LINE ไม่สำเร็จ',
                 res.message,
                 'error'
               );
             }
           })
           .catch((err) => {
-            console.error('Failed to dispatch LINE Notify', err);
+            console.error('Failed to dispatch LINE notification', err);
           });
       }
     }
@@ -471,13 +715,12 @@ export default function App() {
       setSelectedJob(updatedJob);
     }
 
-    // Automatically trigger LINE Notify for status update if enabled
+    // Automatically trigger LINE Messaging API for status update if enabled
     if (
       updatedJob &&
       previousStatus !== newStatus &&
-      settings.lineNotify?.enabled &&
-      settings.lineNotify?.notifyOnStatusChange &&
-      settings.lineNotify?.token?.trim()
+      isLineConfigured(settings.lineNotify) &&
+      settings.lineNotify?.notifyOnStatusChange
     ) {
       const msg = formatStatusChangeNotification(
         updatedJob,
@@ -485,7 +728,7 @@ export default function App() {
         newStatus,
         settings
       );
-      sendLineNotify(settings.lineNotify.token, msg)
+      sendLineNotification(settings.lineNotify, msg)
         .then((res) => {
           addNotificationLog({
             type: 'status_change',
@@ -553,9 +796,8 @@ export default function App() {
 
     if (
       updatedJob &&
-      settings.lineNotify?.enabled &&
-      settings.lineNotify?.notifyOnStatusChange &&
-      settings.lineNotify?.token?.trim()
+      isLineConfigured(settings.lineNotify) &&
+      settings.lineNotify?.notifyOnStatusChange
     ) {
       const msg = formatStatusChangeNotification(
         updatedJob,
@@ -563,7 +805,7 @@ export default function App() {
         'ปิดงาน',
         settings
       );
-      sendLineNotify(settings.lineNotify.token, msg)
+      sendLineNotification(settings.lineNotify, msg)
         .then((res) => {
           addNotificationLog({
             type: 'status_change',
@@ -575,7 +817,7 @@ export default function App() {
             responseMessage: res.message,
           });
         })
-        .catch((err) => console.error('Failed to send close job LINE notify', err));
+        .catch((err) => console.error('Failed to send close job LINE notification', err));
     }
   };
 
@@ -831,6 +1073,7 @@ export default function App() {
             settings={settings}
             onSaveSettings={handleSaveSettings}
             isAdmin={isAdmin}
+            jobs={jobs}
           />
         )}
       </main>
@@ -1031,9 +1274,24 @@ export default function App() {
         />
       )}
 
+      {/* Modal: 30-Minute-Before Appointment Voice + LINE Messaging API Alarm */}
+      <AppointmentReminderModal
+        dueItems={dueThirtyMinItems}
+        isOpen={!isBooting && !isUserLinkLoginOpen && !showExpiredWarning && dueThirtyMinItems.length > 0}
+        onAcknowledgeAll={handleAcknowledgeThirtyMinAlarms}
+        onOpenJobDetail={(job) => setSelectedJob(job)}
+        lineConfigured={
+          isLineConfigured(settings.lineNotify) &&
+          settings.lineNotify?.notifyBefore30Min !== false
+        }
+        repeatIntervalMinutes={Number(settings.lineNotify?.repeatIntervalMinutes) || 2}
+        lineSendCount={lineSendCount}
+        onResendLineNow={() => dispatchLineThirtyMinReminder(dueThirtyMinItems, true)}
+      />
+
       {/* Modal: Daily Pending Queue Voice Alarm ("วันนี้มีกี่คิวงาน กดยืนยันเพื่อรับทราบ" หยุดเองเมื่อเลย 5 นาที) */}
       <DailyQueueAlarmModal
-        isOpen={isDailyQueueModalOpen}
+        isOpen={isDailyQueueModalOpen && dueThirtyMinItems.length === 0}
         pendingJobs={todayPendingJobs}
         onAcknowledge={handleAcknowledgeDailyQueue}
         onSelectJob={(job) => {
@@ -1043,13 +1301,16 @@ export default function App() {
 
       {/* Modal: Expired Warranty Alarm & Voice Alert Pop up (งานหมดระยะประกันพร้อมเสียงเตือนซ้ำๆ) */}
       <ExpiredWarrantyModal
-        isOpen={isExpiredWarrantyModalOpen && !isDailyQueueModalOpen}
+        isOpen={isExpiredWarrantyModalOpen && !isDailyQueueModalOpen && dueThirtyMinItems.length === 0}
         expiredJobs={allExpiredWarrantyJobs}
         onAcknowledgeAll={handleAcknowledgeAllExpired}
         onSelectJob={(job) => {
           setSelectedJob(job);
         }}
       />
+
+      {/* Offline Status Toast */}
+      <OfflineIndicator />
 
       {/* Modal: Download Source Code (การโหลด source code แสดงเฉพาะ ลิงก์แอดมินเท่านั้น) */}
       <DownloadSourceCodeModal

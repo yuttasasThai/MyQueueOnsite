@@ -70,9 +70,16 @@ export interface ShopSettings {
 
 export interface LineNotifySettings {
   enabled: boolean;
-  token: string;
+  provider?: 'messaging_api' | 'line_notify';
+  token: string; // Channel Access Token (LINE Messaging API) หรือ Legacy LINE Notify Token
+  channelAccessToken?: string; // Channel Access Token สำหรับ LINE Messaging API
+  channelSecret?: string; // Optional Channel Secret
+  targetId?: string; // User ID (U...) หรือ Group ID (C...) ผู้รับข้อความ
+  sendMode?: 'push' | 'broadcast'; // push (เจาะจง User/Group ID) หรือ broadcast (ส่งทุกคนใน OA)
   notifyOnNewJob: boolean; // แจ้งเตือนเมื่อมีคิวงาน/นัดหมายใหม่
   notifyOnStatusChange: boolean; // แจ้งเตือนเมื่อมีการอัปเดตสถานะงาน
+  notifyBefore30Min?: boolean; // แจ้งเตือนก่อนเวลานัดหมาย 30 นาที (เตือนซ้ำจนกว่าจะกดยืนยัน)
+  repeatIntervalMinutes?: number; // ช่วงเวลาส่งเตือนซ้ำทาง LINE (นาที) จนกว่าจะกดยืนยัน
   includeCustomerPhone: boolean; // แสดงเบอร์ลูกค้าในแจ้งเตือน
   includeMapLink: boolean; // แนบลิงก์ Google Maps ในแจ้งเตือน
 }
@@ -80,7 +87,7 @@ export interface LineNotifySettings {
 export interface NotificationLog {
   id: string;
   timestamp: string;
-  type: 'new_job' | 'status_change' | 'manual_test';
+  type: 'new_job' | 'status_change' | 'manual_test' | 'reminder_30m';
   jobQueueNumber?: string;
   jobProduct?: string;
   status?: RepairStatus;

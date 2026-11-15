@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 17 | Version: 1.4.0 | Modified: 2026-11-15
+// File: /src/version.ts | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.4.0';
-export const APP_REVISION = 'Rev 17';
+export const APP_VERSION = '1.5.0';
+export const APP_REVISION = 'Rev 19';
 export const APP_RELEASE_DATE = '2026-11-15';
 
 export interface RevisionRecord {
@@ -14,6 +14,68 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 19',
+    version: '1.5.0',
+    date: '2026-11-15',
+    description:
+      'เปลี่ยนระบบแจ้งเตือนจาก LINE Notify (ที่ยกเลิกให้บริการแล้ว) เป็น LINE Messaging API รองรับทั้ง Push และ Broadcast, ปรับเวลาแจ้งเตือนล่วงหน้าเป็น 30 นาทีก่อนเวลานัดหมายพร้อมส่งเสียงเตือนในแอปและข้อความ Flex Message เข้า LINE ซ้ำต่อเนื่องจนกว่าจะกดยืนยันรับทราบทาง LINE (ปุ่ม Postback / พิมพ์ "ยืนยัน") หรือในโปรแกรมอย่างใดอย่างหนึ่ง, และเพิ่ม Webhook + Serverless API endpoints',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'src/types.ts',
+      'src/services/lineNotify.ts',
+      'src/services/appointmentAlarm.ts',
+      'src/components/AdminSettings.tsx',
+      'src/components/AppointmentReminderModal.tsx',
+      'src/components/PWAInstallButton.tsx',
+      'src/components/JobModal.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/App.tsx',
+      'public/alarm-sw.js',
+      'server.ts',
+      'api/_store.ts',
+      'api/line-webhook.ts',
+      'api/line-messaging/push.ts',
+      'api/line-messaging/ack.ts',
+      'api/line-messaging/status.ts',
+      'api/line-messaging/sync-schedules.ts',
+      'api/line-notify.ts',
+    ],
+  },
+  {
+    revision: 'Rev 18',
+    version: '1.4.1',
+    date: '2026-11-15',
+    description:
+      'เพิ่มระบบแจ้งเตือนคิวงานอัตโนมัติก่อนถึงเวลานัดหมาย 1 ชั่วโมง พร้อมเสียงพูดเตือนซ้ำ + ปุ่มยืนยันรับทราบ, ติดตั้งระบบ PWA เต็มรูปแบบ (Web App Manifest, ไอคอนติดตั้งแอป, Service Worker + IndexedDB + TimestampTrigger/PeriodicSync) เพื่อให้แจ้งเตือนเด้งขึ้นแม้ไม่ได้เปิด Google Chrome ไว้, และเพิ่มปุ่มบันทึกลงปฏิทินมือถือ (.ics) พร้อมตั้งปลุกเตือนล่วงหน้า 1 ชั่วโมง',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'vite.config.ts',
+      'tsconfig.json',
+      'index.html',
+      'vercel.json',
+      'public/alarm-sw.js',
+      'public/icon.svg',
+      'public/pwa-192x192.png',
+      'public/pwa-512x512.png',
+      'public/pwa-maskable-512x512.png',
+      'public/apple-touch-icon.png',
+      'src/services/appointmentAlarm.ts',
+      'src/hooks/usePWAInstall.ts',
+      'src/hooks/useOnlineStatus.ts',
+      'src/components/OfflineIndicator.tsx',
+      'src/components/PWAInstallButton.tsx',
+      'src/components/AppointmentReminderModal.tsx',
+      'src/components/HeroCover.tsx',
+      'src/components/AdminSettings.tsx',
+      'src/components/JobModal.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/main.tsx',
+      'src/App.tsx',
+    ],
+  },
   {
     revision: 'Rev 17',
     version: '1.4.0',
