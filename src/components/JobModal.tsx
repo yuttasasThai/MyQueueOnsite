@@ -181,6 +181,11 @@ export const JobModal: React.FC<JobModalProps> = ({
       warrantyEndDate,
       assignedUserId: cleanTech ? `tech_${cleanTech}` : undefined,
       assignedUserName: cleanTech || undefined,
+      photos: initialJob?.photos,
+      statusPhotos: initialJob?.statusPhotos,
+      closedAt:
+        initialJob?.closedAt ||
+        (status === 'ปิดงาน' ? new Date().toISOString().split('T')[0] : undefined),
       notes: notes.trim(),
     };
 

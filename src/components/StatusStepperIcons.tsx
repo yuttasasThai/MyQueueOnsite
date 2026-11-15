@@ -1,4 +1,4 @@
-// File: /src/components/StatusStepperIcons.tsx | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
+// File: /src/components/StatusStepperIcons.tsx | Revision: Rev 17 | Version: 1.4.0 | Modified: 2026-11-15
 import React from 'react';
 import {
   ClipboardCheck,
@@ -8,8 +8,9 @@ import {
   Award,
   Check,
   Lock,
+  Camera,
 } from 'lucide-react';
-import { RepairJob, RepairStatus } from '../types';
+import { RepairJob, RepairStatus, StatusPhotosMap } from '../types';
 
 export interface StatusStepDef {
   status: RepairStatus;
@@ -108,6 +109,7 @@ interface StatusStepperInteractiveProps {
   currentStatus: RepairStatus;
   pendingStatus?: RepairStatus | null;
   allowAllSelectable?: boolean;
+  statusPhotos?: StatusPhotosMap;
   onChangeStatus: (newStatus: RepairStatus) => void;
 }
 
@@ -183,6 +185,15 @@ export const StatusStepperIcons: React.FC<StatusStepperIconsProps> = (props) => 
                   {isPassed && !allowAll && (
                     <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-slate-700 text-white flex items-center justify-center border border-white shadow-2xs">
                       <Lock className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+                  {(props.statusPhotos?.[step.status]?.length || 0) > 0 && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 rounded-full bg-blue-600 text-white text-[9px] font-mono font-bold flex items-center justify-center gap-0.5 border border-white shadow-2xs"
+                      title={`มีรูปภาพ ${props.statusPhotos?.[step.status]?.length} รูป`}
+                    >
+                      <Camera className="w-2 h-2 shrink-0" />
+                      {props.statusPhotos?.[step.status]?.length}
                     </span>
                   )}
                 </div>

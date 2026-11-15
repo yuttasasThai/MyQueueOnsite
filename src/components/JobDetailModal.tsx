@@ -1,21 +1,15 @@
-// File: /src/components/JobDetailModal.tsx | Revision: Rev 16 | Version: 1.3.1 | Modified: 2026-11-14
+// File: /src/components/JobDetailModal.tsx | Revision: Rev 17 | Version: 1.4.0 | Modified: 2026-11-15
 import React, { useState, useEffect } from 'react';
 import {
   X,
   Phone,
   MessageCircle,
   Facebook,
-  MapPin,
   Calendar,
-  Clock,
   ShieldCheck,
   ShieldAlert,
   ShieldX,
-  Wrench,
   Printer,
-  DollarSign,
-  User,
-  Camera,
   Navigation,
   Edit,
   Edit3,
@@ -24,13 +18,15 @@ import {
   Copy,
   Check,
   RefreshCw,
-  ArrowRight,
   Lock,
   Save,
   Shield,
+  Camera,
+  Images,
 } from 'lucide-react';
 import { RepairJob, RepairStatus, ShopSettings } from '../types';
 import { getWarrantyStatus } from '../services/storage';
+import { getTotalJobPhotosCount } from '../services/imageUtils';
 import {
   StatusStepperIcons,
   getNextForwardStatus,
@@ -60,6 +56,7 @@ interface JobDetailModalProps {
   onUpdateActualCost: (jobId: string, actualCost: number) => void;
   onEdit: (job: RepairJob) => void;
   onPrint: (job: RepairJob) => void;
+  onOpenStatusPhotos: (job: RepairJob, status?: RepairStatus) => void;
   settings: ShopSettings;
   isAdmin: boolean;
 }
@@ -71,14 +68,14 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   onUpdateActualCost,
   onEdit,
   onPrint,
+  onOpenStatusPhotos,
   settings,
   isAdmin,
 }) => {
   const [actualCostInput, setActualCostInput] = useState<string>('');
   const [costSaved, setCostSaved] = useState(false);
 
-  // Status forward confirmation & explicit edit mode states
-  const [pendingForwardStatus, setPendingForwardStatus] = useState<RepairStatus | null>(null);
+  // Explicit edit mode states
   const [isEditingStatus, setIsEditingStatus] = useState(false);
   const [draftEditStatus, setDraftEditStatus] = useState<RepairStatus>('รับงาน');
 
@@ -90,7 +87,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   useEffect(() => {
     if (job) {
       setActualCostInput(job.actualCost !== null ? String(job.actualCost) : '');
-      setPendingForwardStatus(null);
       setIsEditingStatus(false);
       setDraftEditStatus(job.status);
     }
@@ -100,6 +96,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   const warrantyStatus = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
   const nextForwardStatus = getNextForwardStatus(job.status);
+  const totalPhotosCount = getTotalJobPhotosCount(job);
 
   const getMapsUrl = () => {
     if (job.customer.mapCoordinates && job.customer.mapCoordinates.includes(',')) {
@@ -223,7 +220,6 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setPendingForwardStatus(null);
                   setDraftEditStatus(job.status);
                   setIsEditingStatus(!isEditingStatus);
                 }}
@@ -244,69 +240,45 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <StatusStepperIcons
                 mode="interactive"
                 currentStatus={job.status}
-                pendingStatus={pendingForwardStatus}
+                statusPhotos={job.statusPhotos}
                 onChangeStatus={(st) => {
                   if (isForwardTransitionAllowed(job.status, st)) {
-                    setPendingForwardStatus(st);
+                    onStatusChange(job.id, st, false);
                   }
                 }}
               />
 
-              {/* Confirmation prompt before advancing to avoid wrong updates */}
-              {pendingForwardStatus ? (
-                <div className="p-3 bg-blue-50 border border-blue-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-in fade-in duration-150">
-                  <div className="text-xs text-slate-800 flex flex-wrap items-center gap-1.5">
-                    <span>ยืนยันอัปเดตสถานะ:</span>
-                    <strong className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
-                      {job.status}
-                    </strong>
-                    <ArrowRight className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <strong className="px-2 py-0.5 rounded bg-blue-600 text-white">
-                      {pendingForwardStatus}
-                    </strong>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setPendingForwardStatus(null)}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer"
-                    >
-                      ยกเลิก
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onStatusChange(job.id, pendingForwardStatus, false);
-                        setPendingForwardStatus(null);
-                      }}
-                      className="px-3.5 py-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>ยืนยันอัปเดต</span>
-                    </button>
-                  </div>
-                </div>
-              ) : nextForwardStatus ? (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-                  <span className="text-[11px] text-slate-500">
-                    กดที่วงกลมขั้นถัดไป หรือกดปุ่มด้านขวาเพื่อเดินหน้าสถานะ (หากอัปเดตผิดให้กด &quot;แก้ไขสถานะ&quot;)
-                  </span>
+              {/* Direct helper text & Per-status Photo Pop-up triggers */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
+                <span className="text-[11px] text-slate-500">
+                  {nextForwardStatus
+                    ? `กดที่ไอคอน "${nextForwardStatus}" หรือขั้นตอนถัดไปเพื่ออัปเดตทันที`
+                    : job.status === 'ปิดงาน'
+                    ? 'ปิดงานเรียบร้อยแล้ว (หากต้องการแก้ไข ให้กด "แก้ไขสถานะ")'
+                    : 'กดปุ่ม "แก้ไขสถานะ" เพื่อปรับเปลี่ยนสถานะ'}
+                </span>
+
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => setPendingForwardStatus(nextForwardStatus)}
-                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors shrink-0 cursor-pointer"
+                    onClick={() => onOpenStatusPhotos(job, job.status)}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
-                    <span>ขั้นถัดไป: {nextForwardStatus}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>ถ่าย/แนบรูป ({job.status})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenStatusPhotos(job)}
+                    className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                    title="เปิดหน้าต่างรูปภาพแยกแต่ละสถานะของคิวนี้"
+                  >
+                    <Images className="w-3.5 h-3.5 text-blue-600" />
+                    <span>รูปทั้งหมด ({totalPhotosCount})</span>
                   </button>
                 </div>
-              ) : (
-                <div className="text-[11px] text-slate-500 text-center pt-0.5">
-                  {job.status === 'ปิดงาน'
-                    ? 'งานนี้ปิดงานเรียบร้อยแล้ว (หากต้องการปรับสถานะ ให้กดปุ่ม "แก้ไขสถานะ")'
-                    : 'อยู่ในสถานะพิเศษ (หากต้องการเปลี่ยนสถานะ ให้กดปุ่ม "แก้ไขสถานะ")'}
-                </div>
-              )}
+              </div>
             </>
           ) : (
             /* Explicit Edit Status Mode */

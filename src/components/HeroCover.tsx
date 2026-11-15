@@ -217,18 +217,31 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
           </span>
         </div>
 
-        {/* Actions row: ดูรายการคิวงานทั้งหมด & ปุ่มล้างข้อมูลเก่า */}
-        <div className="pt-1 flex items-center justify-between gap-2">
-          {onNavigateToQueue && (
-            <button
-              type="button"
-              onClick={() => onNavigateToQueue('all')}
-              className="text-xs text-blue-300 hover:text-white inline-flex items-center gap-1.5 font-semibold transition-colors hover:underline cursor-pointer"
-            >
-              <span>ดูคิวงานทั้งหมด ({jobs.length} งาน)</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
+        {/* Actions row: ดูรายการคิวงานทั้งหมด, สรุปงานที่ปิดแล้ว & ปุ่มล้างข้อมูลเก่า */}
+        <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {onNavigateToQueue && (
+              <button
+                type="button"
+                onClick={() => onNavigateToQueue('all')}
+                className="text-xs text-blue-300 hover:text-white inline-flex items-center gap-1.5 font-semibold transition-colors hover:underline cursor-pointer"
+              >
+                <span>ดูคิวงานทั้งหมด ({jobs.length} งาน)</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {onNavigateToQueue && (
+              <button
+                type="button"
+                onClick={() => onNavigateToQueue('closed_sheet')}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/40 text-indigo-200 border border-indigo-400/40 inline-flex items-center gap-1 font-semibold transition-colors cursor-pointer"
+              >
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <span>สรุปงานที่ปิดแล้ว ({jobs.filter((j) => j.status === 'ปิดงาน').length})</span>
+              </button>
+            )}
+          </div>
 
           {/* ปุ่มล้างข้อมูลเก่า เพื่อเริ่มต้นใช้งานใหม่ */}
           {onClearAllJobs && (

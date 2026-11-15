@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import {
   Phone,
   MessageCircle,
-  Facebook,
   MapPin,
   Clock,
   ShieldCheck,
@@ -14,18 +13,19 @@ import {
   Printer,
   Calendar,
   AlertTriangle,
-  ChevronDown,
   FileSpreadsheet,
-  Download,
   Edit,
   Edit3,
   ArrowRight,
   User,
+  Camera,
+  Award,
 } from 'lucide-react';
 import { RepairJob, RepairStatus } from '../types';
 import { getWarrantyStatus } from '../services/storage';
+import { getTotalJobPhotosCount } from '../services/imageUtils';
 import { StatusStepperIcons, getNextForwardStatus } from './StatusStepperIcons';
-import { ConfirmForwardStatusModal, EditStatusModal } from './StatusActionModals';
+import { EditStatusModal } from './StatusActionModals';
 
 interface QueueTableProps {
   jobs: RepairJob[];
@@ -34,9 +34,11 @@ interface QueueTableProps {
   onDeleteJob: (jobId: string) => void;
   onStatusChange: (jobId: string, newStatus: RepairStatus, allowOverride?: boolean) => void;
   onPrintJob: (job: RepairJob) => void;
+  onOpenStatusPhotos: (job: RepairJob, status?: RepairStatus) => void;
   isAdmin: boolean;
   currentUserId?: string;
   initialStatusFilter?: string;
+  initialSheet?: 'all' | 'closed';
 }
 
 const ALL_STATUSES: RepairStatus[] = [
@@ -53,21 +55,20 @@ export const QueueTable: React.FC<QueueTableProps> = ({
   jobs,
   onSelectJob,
   onEditJob,
-  onDeleteJob,
   onStatusChange,
   onPrintJob,
+  onOpenStatusPhotos,
   isAdmin,
   currentUserId,
   initialStatusFilter = 'all',
+  initialSheet = 'all',
 }) => {
+  const [activeSheet, setActiveSheet] = useState<'all' | 'closed'>(initialSheet);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>(initialStatusFilter);
   const [selectedWarranty, setSelectedWarranty] = useState<string>('all');
   const [onlyMyJobs, setOnlyMyJobs] = useState(false);
-  const [pendingForwardAction, setPendingForwardAction] = useState<{
-    job: RepairJob;
-    nextStatus: RepairStatus;
-  } | null>(null);
+  const [closedMonthFilter, setClosedMonthFilter] = useState<string>('all');
   const [editingStatusJob, setEditingStatusJob] = useState<RepairJob | null>(null);
 
   React.useEffect(() => {
@@ -75,6 +76,10 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       setSelectedStatus(initialStatusFilter);
     }
   }, [initialStatusFilter]);
+
+  React.useEffect(() => {
+    setActiveSheet(initialSheet);
+  }, [initialSheet]);
 
   // Filter logic
   const filteredJobs = useMemo(() => {
@@ -118,6 +123,70 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       0
     );
   }, [filteredJobs]);
+
+  // Closed Jobs Summary Sheet calculations
+  const allClosedJobs = useMemo(() => {
+    return jobs.filter((j) => j.status === 'ปิดงาน');
+  }, [jobs]);
+
+  const closedMonthOptions = useMemo(() => {
+    const months = new Set<string>();
+    allClosedJobs.forEach((j) => {
+      const refDate = j.closedAt || j.appointmentDate || j.loggedDate;
+      if (refDate && refDate.length >= 7) {
+        months.add(refDate.slice(0, 7));
+      }
+    });
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }, [allClosedJobs]);
+
+  const filteredClosedJobs = useMemo(() => {
+    return allClosedJobs.filter((job) => {
+      const query = searchTerm.toLowerCase().trim();
+      const matchSearch =
+        !query ||
+        job.queueNumber.toLowerCase().includes(query) ||
+        job.product.toLowerCase().includes(query) ||
+        job.customer.name.toLowerCase().includes(query) ||
+        job.customer.phone.includes(query) ||
+        (job.assignedUserName || '').toLowerCase().includes(query);
+
+      const refDate = job.closedAt || job.appointmentDate || job.loggedDate;
+      const matchMonth =
+        closedMonthFilter === 'all' || (refDate && refDate.startsWith(closedMonthFilter));
+
+      const ws = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
+      let matchWarranty = true;
+      if (selectedWarranty === 'valid') matchWarranty = ws.status === 'valid';
+      if (selectedWarranty === 'warning') matchWarranty = ws.status === 'warning';
+      if (selectedWarranty === 'expired') matchWarranty = ws.status === 'expired';
+
+      return matchSearch && matchMonth && matchWarranty;
+    });
+  }, [allClosedJobs, searchTerm, closedMonthFilter, selectedWarranty]);
+
+  const closedTotalEstimated = useMemo(
+    () => filteredClosedJobs.reduce((acc, j) => acc + (j.estimatedCost || 0), 0),
+    [filteredClosedJobs]
+  );
+
+  const closedTotalActual = useMemo(
+    () =>
+      filteredClosedJobs.reduce(
+        (acc, j) => acc + (j.actualCost !== null ? j.actualCost : 0),
+        0
+      ),
+    [filteredClosedJobs]
+  );
+
+  const closedValidWarrantyCount = useMemo(
+    () =>
+      filteredClosedJobs.filter((j) => {
+        const ws = getWarrantyStatus(j.warrantyEndDate, j.warrantyDays);
+        return j.warrantyDays > 0 && ws.status !== 'expired';
+      }).length,
+    [filteredClosedJobs]
+  );
 
   // Status helper styles
   const getStatusBadge = (status: RepairStatus) => {
@@ -207,8 +276,134 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  // Export dedicated Closed Jobs Summary Excel CSV with totals row
+  const handleExportClosedCSV = () => {
+    const headers = [
+      'ลำดับ',
+      'เลขคิว',
+      'วันที่ปิดงาน',
+      'วันนัดหมาย',
+      'ชื่อลูกค้า',
+      'เบอร์โทรศัพท์',
+      'สินค้า/อุปกรณ์',
+      'หมวดงานซ่อม',
+      'รายละเอียดงานซ่อม',
+      'ช่างผู้รับผิดชอบ',
+      'ประเมินค่าซ่อม(บาท)',
+      'ค่าซ่อมจริง(บาท)',
+      'ระยะประกัน(วัน)',
+      'วันเริ่มประกัน',
+      'วันสิ้นสุดประกัน',
+      'สถานะประกัน',
+      'หมายเหตุปิดงาน',
+    ];
+
+    const rows = filteredClosedJobs.map((job, idx) => {
+      const ws = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
+      const warrantyStatusLabel =
+        job.warrantyDays === 0
+          ? 'ไม่มีประกัน'
+          : ws.status === 'expired'
+          ? 'หมดประกันแล้ว'
+          : `อยู่ในประกัน (เหลือ ${ws.daysRemaining} วัน)`;
+      return [
+        idx + 1,
+        job.queueNumber,
+        job.closedAt || job.appointmentDate,
+        job.appointmentDate,
+        `"${job.customer.name.replace(/"/g, '""')}"`,
+        `"${job.customer.phone}"`,
+        `"${job.product.replace(/"/g, '""')}"`,
+        `"${job.productCategory || ''}"`,
+        `"${(job.jobDetails || '').replace(/"/g, '""')}"`,
+        `"${job.assignedUserName || ''}"`,
+        job.estimatedCost || 0,
+        job.actualCost !== null ? job.actualCost : 0,
+        job.warrantyDays,
+        job.warrantyStartDate || job.appointmentDate,
+        job.warrantyEndDate,
+        `"${warrantyStatusLabel}"`,
+        `"${(job.notes || '').replace(/"/g, '""')}"`,
+      ];
+    });
+
+    const summaryRow = [
+      '',
+      'รวมทั้งหมด',
+      '',
+      '',
+      `"${filteredClosedJobs.length} งาน"`,
+      '',
+      '',
+      '',
+      '',
+      '',
+      closedTotalEstimated,
+      closedTotalActual,
+      '',
+      '',
+      '',
+      '',
+      '',
+    ];
+
+    const csvContent =
+      '\uFEFF' +
+      [headers.join(','), ...rows.map((e) => e.join(',')), summaryRow.join(',')].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `myqueue_closed_jobs_summary_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-3 font-sans">
+      {/* Excel Workbook Sheet Switcher (ตารางคิวงานทั้งหมด vs สรุปงานที่ปิดแล้ว) */}
+      <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-1.5 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setActiveSheet('all')}
+          className={`flex-1 min-w-[160px] py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            activeSheet === 'all'
+              ? 'bg-emerald-700 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 shrink-0" />
+          <span>Sheet 1: ตารางคิวงานทั้งหมด</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums ${
+              activeSheet === 'all' ? 'bg-emerald-900 text-emerald-100' : 'bg-slate-200 text-slate-700'
+            }`}
+          >
+            {jobs.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSheet('closed')}
+          className={`flex-1 min-w-[180px] py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            activeSheet === 'closed'
+              ? 'bg-indigo-700 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Award className="w-4 h-4 shrink-0" />
+          <span>Sheet 2: สรุปงานที่ปิดแล้ว (Excel)</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums ${
+              activeSheet === 'closed' ? 'bg-indigo-900 text-indigo-100' : 'bg-indigo-100 text-indigo-800'
+            }`}
+          >
+            {allClosedJobs.length}
+          </span>
+        </button>
+      </div>
+
       {/* Excel Ribbon Control Bar */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3.5 space-y-3">
         {/* Top row: Search, Filters, Excel Export */}
@@ -251,8 +446,24 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               <option value="expired">หมดประกันแล้ว</option>
             </select>
 
+            {/* Month filter when on Closed Jobs Sheet */}
+            {activeSheet === 'closed' && (
+              <select
+                value={closedMonthFilter}
+                onChange={(e) => setClosedMonthFilter(e.target.value)}
+                className="text-xs bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-2 font-semibold text-indigo-800 focus:outline-none focus:ring-1 focus:ring-indigo-600 cursor-pointer"
+              >
+                <option value="all">ทุกเดือน ({allClosedJobs.length})</option>
+                {closedMonthOptions.map((ym) => (
+                  <option key={ym} value={ym}>
+                    เดือน {ym}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {/* Toggle Only My Jobs if in user mode */}
-            {!isAdmin && currentUserId && (
+            {activeSheet === 'all' && !isAdmin && currentUserId && (
               <button
                 type="button"
                 onClick={() => setOnlyMyJobs(!onlyMyJobs)}
@@ -269,66 +480,83 @@ export const QueueTable: React.FC<QueueTableProps> = ({
             {/* Excel Download button */}
             <button
               type="button"
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-              title="ส่งออกตารางข้อมูลเป็น Excel (.csv)"
+              onClick={activeSheet === 'closed' ? handleExportClosedCSV : handleExportCSV}
+              className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+                activeSheet === 'closed'
+                  ? 'bg-indigo-700 hover:bg-indigo-800'
+                  : 'bg-emerald-700 hover:bg-emerald-800'
+              }`}
+              title={
+                activeSheet === 'closed'
+                  ? 'ส่งออกสรุปงานที่ปิดแล้วเป็น Excel (.csv)'
+                  : 'ส่งออกตารางข้อมูลเป็น Excel (.csv)'
+              }
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>ส่งออก Excel</span>
+              <span>
+                {activeSheet === 'closed' ? 'ส่งออก Excel สรุปงานปิดแล้ว' : 'ส่งออก Excel'}
+              </span>
             </button>
           </div>
         </div>
 
-        {/* Real-time Circular Horizontal Status Icons Bar */}
-        <StatusStepperIcons
-          mode="summary"
-          variant="light"
-          jobs={jobs}
-          selectedStatus={selectedStatus}
-          onSelectStatus={setSelectedStatus}
-        />
+        {/* Real-time Circular Horizontal Status Icons Bar (Sheet 1 only) */}
+        {activeSheet === 'all' && (
+          <>
+            <StatusStepperIcons
+              mode="summary"
+              variant="light"
+              jobs={jobs}
+              selectedStatus={selectedStatus}
+              onSelectStatus={setSelectedStatus}
+            />
 
-        {/* Status Segmented Tabs Bar (Excel Sheet-like Tabs) */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs border-t border-slate-200 pt-2.5 scrollbar-none">
-          <button
-            type="button"
-            onClick={() => setSelectedStatus('all')}
-            className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-              selectedStatus === 'all'
-                ? 'bg-emerald-800 text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            ทั้งหมด ({jobs.length})
-          </button>
-
-          {ALL_STATUSES.map((status) => {
-            const count = jobs.filter((j) => j.status === status).length;
-            const isSelected = selectedStatus === status;
-            return (
+            {/* Status Segmented Tabs Bar (Excel Sheet-like Tabs) */}
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs border-t border-slate-200 pt-2.5 scrollbar-none">
               <button
-                key={status}
                 type="button"
-                onClick={() => setSelectedStatus(status)}
-                className={`px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
-                  isSelected
-                    ? 'bg-emerald-700 text-white shadow-xs font-semibold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                onClick={() => setSelectedStatus('all')}
+                className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                  selectedStatus === 'all'
+                    ? 'bg-emerald-800 text-white shadow-xs'
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                <span>{status}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono tabular-nums ${
-                    isSelected ? 'bg-emerald-900 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {count}
-                </span>
+                ทั้งหมด ({jobs.length})
               </button>
-            );
-          })}
-        </div>
+
+              {ALL_STATUSES.map((status) => {
+                const count = jobs.filter((j) => j.status === status).length;
+                const isSelected = selectedStatus === status;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setSelectedStatus(status)}
+                    className={`px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-700 text-white shadow-xs font-semibold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{status}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono tabular-nums ${
+                        isSelected ? 'bg-emerald-900 text-white' : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
+
+      {activeSheet === 'all' ? (
+      <>
 
       {/* Excel Sheet Container with Green Toolbar Top */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
@@ -546,11 +774,11 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                                 onClick={() => {
                                   const next = getNextForwardStatus(job.status);
                                   if (next) {
-                                    setPendingForwardAction({ job, nextStatus: next });
+                                    onStatusChange(job.id, next, false);
                                   }
                                 }}
                                 className="flex-1 inline-flex items-center justify-center gap-0.5 px-1.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
-                                title={`เดินหน้าสถานะเป็น "${getNextForwardStatus(job.status)}"`}
+                                title={`เดินหน้าสถานะเป็น "${getNextForwardStatus(job.status)}" ทันที`}
                               >
                                 <ArrowRight className="w-2.5 h-2.5 shrink-0" />
                                 <span className="truncate">{getNextForwardStatus(job.status)}</span>
@@ -600,7 +828,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         </div>
                       </td>
 
-                      {/* จัดการ (Actions) */}
+                      {/* จัดการ (Actions - เปิด Pop-up รูปแยกต่างหาก ไม่แสดงรูปในตาราง) */}
                       <td
                         className="py-2 px-2.5 text-center"
                         onClick={(e) => e.stopPropagation()}
@@ -608,8 +836,21 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
+                            onClick={() => onOpenStatusPhotos(job)}
+                            className="relative p-1 rounded text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title={`ถ่ายรูป/แนบรูปแต่ละสถานะ (${getTotalJobPhotosCount(job)} รูป)`}
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            {getTotalJobPhotosCount(job) > 0 && (
+                              <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-blue-600 text-white text-[8px] font-mono font-bold flex items-center justify-center">
+                                {getTotalJobPhotosCount(job)}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => onSelectJob(job)}
-                            className="p-1 rounded text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                            className="p-1 rounded text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
                             title="ดูรายละเอียดงาน"
                           >
                             <ChevronRight className="w-4 h-4" />
@@ -617,7 +858,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                           <button
                             type="button"
                             onClick={() => onPrintJob(job)}
-                            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
                             title="พิมพ์ใบเสร็จ/ส่งมอบ"
                           >
                             <Printer className="w-3.5 h-3.5" />
@@ -626,7 +867,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                             <button
                               type="button"
                               onClick={() => onEditJob(job)}
-                              className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
                               title="แก้ไขงาน"
                             >
                               <Edit className="w-3.5 h-3.5" />
@@ -682,14 +923,272 @@ export const QueueTable: React.FC<QueueTableProps> = ({
           </div>
         </div>
       </div>
+      </>
+      ) : (
+        /* Sheet 2: ตาราง Excel แยกสำหรับสรุปงานที่ปิดแล้ว */
+        <div className="space-y-3">
+          {/* Closed Jobs Summary KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="bg-white rounded-xl border border-indigo-200 p-3 flex items-center justify-between shadow-2xs">
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">
+                  จำนวนงานที่ปิดแล้ว (COUNT)
+                </span>
+                <strong className="text-xl font-mono font-black text-indigo-800 tabular-nums">
+                  {filteredClosedJobs.length} งาน
+                </strong>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                <Award className="w-5 h-5" />
+              </div>
+            </div>
 
-      {/* Confirmation Modal for One-Way Forward Status Progression */}
-      <ConfirmForwardStatusModal
-        job={pendingForwardAction?.job || null}
-        targetStatus={pendingForwardAction?.nextStatus || null}
-        onClose={() => setPendingForwardAction(null)}
-        onConfirm={(jobId, newStatus) => onStatusChange(jobId, newStatus, false)}
-      />
+            <div className="bg-white rounded-xl border border-emerald-200 p-3 flex items-center justify-between shadow-2xs">
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">
+                  ยอดค่าซ่อมจริงรวมทั้งหมด (SUM)
+                </span>
+                <strong className="text-xl font-mono font-black text-emerald-700 tabular-nums">
+                  ฿{closedTotalActual.toLocaleString()}
+                </strong>
+              </div>
+              <div className="text-right text-[10px] text-slate-500 font-mono">
+                <div>ประเมินรวม</div>
+                <div className="font-bold text-slate-700">
+                  ฿{closedTotalEstimated.toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-blue-200 p-3 flex items-center justify-between shadow-2xs">
+              <div>
+                <span className="text-[11px] font-semibold text-slate-500 block">
+                  งานที่ยังอยู่ในระยะประกัน
+                </span>
+                <strong className="text-xl font-mono font-black text-blue-700 tabular-nums">
+                  {closedValidWarrantyCount} งาน
+                </strong>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Dedicated Closed Jobs Excel Table */}
+          <div className="bg-white rounded-xl border border-indigo-300 shadow-sm overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-800 to-blue-800 text-white px-4 py-2.5 flex items-center justify-between text-xs border-b border-indigo-900">
+              <div className="flex items-center gap-2 font-semibold">
+                <FileSpreadsheet className="w-4 h-4 text-indigo-200" />
+                <span className="tracking-wide">
+                  ตาราง Excel สรุปงานที่ปิดแล้ว (Closed Jobs Summary)
+                </span>
+              </div>
+              <div className="font-mono text-[11px] text-indigo-200 flex items-center gap-3">
+                <span>แสดง {filteredClosedJobs.length} แถว</span>
+                <span>|</span>
+                <span>รวมค่าซ่อมจริง ฿{closedTotalActual.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-[70vh] relative">
+              <table className="w-full text-left border-collapse text-xs select-text">
+                <thead className="sticky top-0 z-20 bg-indigo-50 shadow-xs">
+                  <tr className="border-b-2 border-indigo-200 text-slate-700 font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-2 px-2.5 border-r border-indigo-200 text-center w-12 bg-indigo-100 text-indigo-800">
+                      #
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[85px] text-center">
+                      เลขคิวงาน
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[130px]">
+                      วันที่ปิดงาน / นัด
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[200px]">
+                      สินค้า &amp; รายละเอียดปิดงาน
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[160px]">
+                      ลูกค้า &amp; เบอร์โทร
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[110px]">
+                      ช่างผู้รับผิดชอบ
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 text-right min-w-[95px]">
+                      ประเมิน (฿)
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 text-right min-w-[110px] bg-emerald-50 text-emerald-900">
+                      ค่าซ่อมจริง (฿)
+                    </th>
+                    <th className="py-2.5 px-3 border-r border-indigo-200 text-center min-w-[155px]">
+                      ระยะประกัน &amp; หมดอายุ
+                    </th>
+                    <th className="py-2.5 px-3 min-w-[110px] text-center bg-indigo-50">
+                      จัดการ
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-200">
+                  {filteredClosedJobs.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-12 text-center text-slate-400 bg-white">
+                        <Award className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                        <p className="font-semibold text-slate-700 text-sm">
+                          ยังไม่มีรายการงานที่ปิดแล้วในตารางสรุป
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          เมื่ออัปเดตงานใดเป็นสถานะ &quot;ปิดงาน&quot; พร้อมใส่ค่าซ่อมและระยะประกัน ระบบจะจัดเก็บลงตารางนี้อัตโนมัติ
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredClosedJobs.map((job, idx) => {
+                      const ws = getWarrantyInfo(job);
+                      const isEven = idx % 2 === 0;
+                      const closedDateLabel = job.closedAt || job.appointmentDate;
+                      return (
+                        <tr
+                          key={job.id}
+                          onClick={() => onSelectJob(job)}
+                          className={`transition-colors cursor-pointer group hover:bg-indigo-50/60 ${
+                            isEven ? 'bg-white' : 'bg-slate-50/70'
+                          }`}
+                        >
+                          <td className="py-2 px-2.5 border-r border-slate-200 text-center font-mono text-slate-400 text-[11px] bg-slate-100/60">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200 text-center whitespace-nowrap">
+                            <span className="font-mono font-bold text-xs bg-indigo-800 text-white px-2 py-0.5 rounded shadow-2xs">
+                              {job.queueNumber}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200">
+                            <div className="font-mono font-bold text-indigo-800">
+                              ปิด: {closedDateLabel}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              นัด: {job.appointmentDate}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200">
+                            <div className="font-bold text-slate-900 line-clamp-1">
+                              {job.product}
+                            </div>
+                            <div className="text-[11px] text-slate-600 line-clamp-1 mt-0.5">
+                              {job.jobDetails || job.symptoms}
+                            </div>
+                            {job.notes && (
+                              <div className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200 mt-0.5 line-clamp-1 inline-block">
+                                หมายเหตุ: {job.notes}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200">
+                            <div className="font-bold text-slate-900">{job.customer.name}</div>
+                            <div className="font-mono text-[11px] text-slate-600">
+                              {job.customer.phone}
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200 text-slate-700">
+                            {job.assignedUserName || '-'}
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200 text-right font-mono text-slate-600 tabular-nums">
+                            ฿{(job.estimatedCost || 0).toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200 text-right font-mono tabular-nums bg-emerald-50/40">
+                            <span className="font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+                              ฿{(job.actualCost ?? 0).toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-200 text-center">
+                            {job.warrantyDays === 0 ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[11px]">
+                                ไม่มีประกัน (0 วัน)
+                              </span>
+                            ) : ws.status === 'expired' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-semibold text-[11px]">
+                                <ShieldX className="w-3 h-3 shrink-0" />
+                                <span>หมดประกัน</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-medium text-[11px]">
+                                <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                                <span>เหลือ {ws.daysRemaining} วัน</span>
+                              </span>
+                            )}
+                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              {job.warrantyDays} วัน (ถึง {job.warrantyEndDate})
+                            </div>
+                          </td>
+                          <td
+                            className="py-2 px-2.5 text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => onOpenStatusPhotos(job)}
+                                className="relative p-1 rounded text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
+                                title={`ดู/เพิ่มรูปภาพแต่ละสถานะ (${getTotalJobPhotosCount(job)} รูป)`}
+                              >
+                                <Camera className="w-3.5 h-3.5" />
+                                {getTotalJobPhotosCount(job) > 0 && (
+                                  <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-blue-600 text-white text-[8px] font-mono font-bold flex items-center justify-center">
+                                    {getTotalJobPhotosCount(job)}
+                                  </span>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onSelectJob(job)}
+                                className="p-1 rounded text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 transition-colors cursor-pointer"
+                                title="ดูรายละเอียด"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onPrintJob(job)}
+                                className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                                title="พิมพ์ใบเสร็จ/ส่งมอบ"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Excel Summary Footer */}
+            <div className="bg-indigo-50 border-t border-indigo-200 px-4 py-2.5 flex flex-wrap items-center justify-between text-xs text-indigo-900 font-mono select-none">
+              <div className="flex items-center gap-3">
+                <span className="font-bold">
+                  สรุปงานที่ปิดแล้ว (COUNT): {filteredClosedJobs.length} งาน
+                </span>
+                <span>•</span>
+                <span>อยู่ในประกัน: {closedValidWarrantyCount} งาน</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <div>
+                  <span>รวมประเมิน: </span>
+                  <strong>฿{closedTotalEstimated.toLocaleString()}</strong>
+                </div>
+                <div>
+                  <span>รวมค่าซ่อมจริง (SUM): </span>
+                  <strong className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+                    ฿{closedTotalActual.toLocaleString()}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Explicit Edit Status Modal */}
       <EditStatusModal
