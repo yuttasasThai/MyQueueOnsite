@@ -1,4 +1,4 @@
-// File: /src/components/AdminSettings.tsx | Revision: Rev 13 | Version: 1.2.8 | Modified: 2026-11-13
+// File: /src/components/AdminSettings.tsx | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
 import React, { useState, useEffect } from 'react';
 import {
   Image as ImageIcon,
@@ -25,11 +25,19 @@ import {
   Wrench,
   UserPlus,
   X,
+  Copy,
+  Link2,
+  AlarmClock,
 } from 'lucide-react';
-import { ShopSettings, NotificationLog } from '../types';
+import { ShopSettings, NotificationLog, RepairJob, LineNotifySettings } from '../types';
 import { COVER_PRESETS, resolveCoverImage } from '../data/initialData';
+import { PWAInstallButton } from './PWAInstallButton';
 import {
-  sendLineNotify,
+  sendLineNotification,
+  getActiveLineChannelToken,
+  getLineSendMode,
+  fetchLineMessagingStatus,
+  CapturedLineTarget,
   formatTestNotification,
   loadNotificationLogs,
   addNotificationLog,
@@ -41,27 +49,38 @@ interface AdminSettingsProps {
   settings: ShopSettings;
   onSaveSettings: (newSettings: ShopSettings) => void;
   isAdmin?: boolean;
+  jobs?: RepairJob[];
 }
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({
   settings,
   onSaveSettings,
   isAdmin = true,
+  jobs = [],
 }) => {
   const [subTab, setSubTab] = useState<'shop' | 'line_notify'>('shop');
+
+  const defaultLineCfg = (prev?: Partial<LineNotifySettings>): LineNotifySettings => ({
+    enabled: true,
+    provider: 'messaging_api',
+    token: '',
+    channelAccessToken: '',
+    targetId: '',
+    sendMode: 'broadcast',
+    notifyOnNewJob: true,
+    notifyOnStatusChange: true,
+    notifyBefore30Min: true,
+    repeatIntervalMinutes: 2,
+    includeCustomerPhone: true,
+    includeMapLink: true,
+    ...prev,
+  });
 
   // Shop Settings Form State (สำหรับ User ไม่แสดงค่าเดิมของร้าน/หน้าปกที่ค้างไว้)
   const sanitizeForRole = (s: ShopSettings): ShopSettings => {
     const base = {
       ...s,
-      lineNotify: s.lineNotify || {
-        enabled: true,
-        token: '',
-        notifyOnNewJob: true,
-        notifyOnStatusChange: true,
-        includeCustomerPhone: true,
-        includeMapLink: true,
-      },
+      lineNotify: defaultLineCfg(s.lineNotify),
       repairCategories: Array.isArray(s.repairCategories) ? s.repairCategories : [],
       technicians: Array.isArray(s.technicians) ? s.technicians : [],
     };
@@ -132,9 +151,11 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     onSaveSettings(updated);
   };
 
-  // LINE Notify Testing State
+  // LINE Messaging API Testing & Target Capture State
   const [showLineToken, setShowLineToken] = useState(false);
   const [isTestingLine, setIsTestingLine] = useState(false);
+  const [capturedTargets, setCapturedTargets] = useState<CapturedLineTarget[]>([]);
+  const [isRefreshingTargets, setIsRefreshingTargets] = useState(false);
   const [lineTestResult, setLineTestResult] = useState<{
     success: boolean;
     message: string;
@@ -145,6 +166,21 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
   );
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
+  const loadCapturedTargets = async () => {
+    setIsRefreshingTargets(true);
+    const status = await fetchLineMessagingStatus();
+    if (status?.capturedTargets) {
+      setCapturedTargets(status.capturedTargets);
+    }
+    setIsRefreshingTargets(false);
+  };
+
+  useEffect(() => {
+    if (subTab === 'line_notify') {
+      loadCapturedTargets();
+    }
+  }, [subTab]);
+
   // Handle Save Shop Settings
   const handleSaveShop = (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,13 +189,14 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     setTimeout(() => setIsSaved(false), 3000);
   };
 
-  // Handle Test LINE Notify
+  // Handle Test LINE Messaging API
   const handleTestLineNotify = async () => {
-    const token = formData.lineNotify?.token?.trim();
+    const cfg = formData.lineNotify;
+    const token = getActiveLineChannelToken(cfg);
     if (!token) {
       setLineTestResult({
         success: false,
-        message: 'กรุณากรอก LINE Notify Token ก่อนกดทดสอบ',
+        message: 'กรุณากรอก Channel Access Token (LINE Messaging API) ก่อนกดทดสอบ',
         timestamp: new Date().toLocaleTimeString('th-TH'),
       });
       return;
@@ -169,12 +206,12 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     setLineTestResult(null);
 
     const testMessage = formatTestNotification(formData);
-    const res = await sendLineNotify(token, testMessage);
+    const res = await sendLineNotification(cfg, testMessage);
 
     addNotificationLog({
       type: 'manual_test',
       success: res.success,
-      message: 'ทดสอบการส่งข้อความแจ้งเตือนเข้าสู่ LINE Notify',
+      message: 'ทดสอบการส่งข้อความแจ้งเตือนเข้าสู่ LINE Messaging API',
       responseMessage: res.message,
     });
     setNotificationLogs(loadNotificationLogs());
@@ -209,9 +246,13 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     }
   };
 
+  const activeLineToken = getActiveLineChannelToken(formData.lineNotify);
+  const webhookUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/api/line-webhook` : '/api/line-webhook';
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Sub Tabs: Shop Settings vs LINE Notify */}
+      {/* Sub Tabs: Shop Settings vs LINE Messaging API */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -237,8 +278,8 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
             }`}
           >
             <BellRing className="w-4 h-4 text-emerald-400" />
-            <span>ตั้งค่า LINE Notify</span>
-            {formData.lineNotify?.enabled && Boolean(formData.lineNotify?.token) && (
+            <span>ตั้งค่า LINE Messaging API</span>
+            {formData.lineNotify?.enabled && Boolean(activeLineToken) && (
               <span className="w-2 h-2 rounded-full bg-emerald-300"></span>
             )}
           </button>
@@ -617,6 +658,22 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
           </div>
           )}
 
+          {/* Card 3: แจ้งเตือนก่อนเวลานัด 30 นาที & ติดตั้งแอปลงมือถือ (PWA) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+              <BellRing className="w-5 h-5 text-blue-600 shrink-0" />
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">
+                  แจ้งเตือนคิวงานล่วงหน้า 30 นาที (แม้ปิด Google Chrome)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  เปิดสิทธิ์แจ้งเตือนพื้นหลังและติดตั้งแอป PWA ลงมือถือเพื่อให้แจ้งเตือนทำงานอัตโนมัติ
+                </p>
+              </div>
+            </div>
+            <PWAInstallButton jobs={jobs} variant="settings" />
+          </div>
+
           {/* Submit Button */}
           <div className="flex items-center justify-end gap-3">
             {isSaved && (
@@ -636,7 +693,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
         </form>
       )}
 
-      {/* TAB 2: LINE NOTIFY SETTINGS */}
+      {/* TAB 2: LINE MESSAGING API SETTINGS */}
       {subTab === 'line_notify' && (
         <div className="space-y-6">
           {/* Header Status Banner */}
@@ -646,13 +703,13 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-xs text-xs font-semibold">
                   <BellRing className="w-3.5 h-3.5 text-emerald-200" />
-                  <span>ระบบส่งแจ้งเตือนผ่านมือถือแบบเรียลไทม์</span>
+                  <span>ทดแทน LINE Notify ที่ยกเลิกแล้ว — รองรับปุ่มกดยืนยันจาก LINE</span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold">
-                  การแจ้งเตือนผ่าน LINE Notify สำหรับช่างและแอดมิน
+                  แจ้งเตือนผ่าน LINE Messaging API (LINE Official Account)
                 </h3>
                 <p className="text-emerald-100 text-xs sm:text-sm max-w-2xl leading-relaxed">
-                  ส่งแจ้งเตือนเข้าห้องแชทเดี่ยวหรือกลุ่ม LINE ของทีมงานอัตโนมัติทันที เมื่อมีการจองนัดหมายใหม่ หรือเมื่อช่างเปลี่ยนสถานะงาน (เช่น รับงาน, กำลังไป, ซ่อมแล้ว, ปิดงาน)
+                  ส่งเสียงแจ้งเตือนเข้า LINE ทันทีเมื่อใกล้ถึงเวลานัดหมาย <strong>30 นาที</strong> และเตือนซ้ำต่อเนื่องจนกว่าคุณจะกดปุ่ม <strong>&quot;ยืนยันรับทราบ&quot;</strong> ทางแชท LINE หรือในโปรแกรม
                 </p>
               </div>
 
@@ -660,7 +717,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                 <div className="bg-white/15 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/20 text-center">
                   <div className="text-[11px] text-emerald-100 font-medium">สถานะการทำงาน</div>
                   <div className="text-sm font-bold flex items-center gap-1.5 justify-center mt-0.5">
-                    {formData.lineNotify?.enabled && Boolean(formData.lineNotify?.token?.trim()) ? (
+                    {formData.lineNotify?.enabled && Boolean(activeLineToken) ? (
                       <>
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-300 animate-pulse"></span>
                         <span>พร้อมใช้งาน</span>
@@ -668,7 +725,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                     ) : (
                       <>
                         <span className="w-2.5 h-2.5 rounded-full bg-amber-300"></span>
-                        <span>ยังไม่ได้ระบุ Token</span>
+                        <span>ยังไม่ระบุ Token</span>
                       </>
                     )}
                   </div>
@@ -680,11 +737,11 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Column: Form & Settings (7 cols) */}
             <div className="lg:col-span-7 space-y-6">
-              <form onSubmit={handleSaveShop} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+              <form onSubmit={handleSaveShop} className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                     <BellRing className="w-4 h-4 text-emerald-600" />
-                    <span>ตั้งค่าการเชื่อมต่อ LINE Notify</span>
+                    <span>ตั้งค่าการเชื่อมต่อ LINE Messaging API</span>
                   </h4>
 
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -694,17 +751,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                       onChange={(e) =>
                         setFormData((prev) => ({
                           ...prev,
-                          lineNotify: {
-                            ...(prev.lineNotify || {
-                              enabled: true,
-                              token: '',
-                              notifyOnNewJob: true,
-                              notifyOnStatusChange: true,
-                              includeCustomerPhone: true,
-                              includeMapLink: true,
-                            }),
+                          lineNotify: defaultLineCfg({
+                            ...prev.lineNotify,
                             enabled: e.target.checked,
-                          },
+                          }),
                         }))
                       }
                       className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
@@ -713,40 +763,37 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   </label>
                 </div>
 
-                {/* Token Input */}
+                {/* Channel Access Token */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                    <span>LINE Notify Access Token *</span>
+                  <label className="text-xs font-semibold text-slate-700 flex items-center justify-between gap-2 flex-wrap">
+                    <span>Channel Access Token (Messaging API) *</span>
                     <a
-                      href="https://notify-bot.line.me/my/"
+                      href="https://developers.line.biz/console/"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[11px] text-emerald-600 hover:text-emerald-700 font-normal hover:underline"
+                      className="text-[11px] text-emerald-600 hover:text-emerald-700 font-medium hover:underline"
                     >
-                      กดขอ Token ฟรีที่ notify-bot.line.me &rarr;
+                      สร้าง Channel ฟรีที่ LINE Developers Console &rarr;
                     </a>
                   </label>
 
                   <div className="relative">
                     <input
                       type={showLineToken ? 'text' : 'password'}
-                      value={formData.lineNotify?.token || ''}
-                      onChange={(e) =>
+                      value={activeLineToken}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
                         setFormData((prev) => ({
                           ...prev,
-                          lineNotify: {
-                            ...(prev.lineNotify || {
-                              enabled: true,
-                              notifyOnNewJob: true,
-                              notifyOnStatusChange: true,
-                              includeCustomerPhone: true,
-                              includeMapLink: true,
-                            }),
-                            token: e.target.value.trim(),
-                          },
-                        }))
-                      }
-                      placeholder="วาง LINE Notify Token ของคุณที่นี่ (ความยาวประมาณ 43 ตัวอักษร)"
+                          lineNotify: defaultLineCfg({
+                            ...prev.lineNotify,
+                            provider: 'messaging_api',
+                            channelAccessToken: val,
+                            token: val,
+                          }),
+                        }));
+                      }}
+                      placeholder="วาง Channel Access Token (long-lived) จาก LINE Developers ที่นี่"
                       className="w-full pl-3 pr-20 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
                     />
 
@@ -755,7 +802,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                         type="button"
                         onClick={() => setShowLineToken(!showLineToken)}
                         title={showLineToken ? 'ซ่อน Token' : 'แสดง Token'}
-                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                       >
                         {showLineToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -766,33 +813,166 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                           try {
                             const text = await navigator.clipboard.readText();
                             if (text) {
+                              const val = text.trim();
                               setFormData((prev) => ({
                                 ...prev,
-                                lineNotify: {
-                                  ...(prev.lineNotify || {
-                                    enabled: true,
-                                    notifyOnNewJob: true,
-                                    notifyOnStatusChange: true,
-                                    includeCustomerPhone: true,
-                                    includeMapLink: true,
-                                  }),
-                                  token: text.trim(),
-                                },
+                                lineNotify: defaultLineCfg({
+                                  ...prev.lineNotify,
+                                  provider: 'messaging_api',
+                                  channelAccessToken: val,
+                                  token: val,
+                                }),
                               }));
                             }
-                          } catch {
-                            // Fallback if permission not granted
-                          }
+                          } catch {}
                         }}
-                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
                       >
                         วาง
                       </button>
                     </div>
                   </div>
+                </div>
 
-                  <p className="text-[11px] text-slate-500">
-                    🔒 Token จะถูกเก็บรักษาไว้ในระบบอย่างปลอดภัย และใช้สำหรับส่งการแจ้งเตือนเท่านั้น
+                {/* Send Mode & Target User/Group ID */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-800">ผู้รับข้อความแจ้งเตือน (Target)</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            lineNotify: defaultLineCfg({ ...prev.lineNotify, sendMode: 'broadcast' }),
+                          }))
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                          getLineSendMode(formData.lineNotify) === 'broadcast'
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Broadcast (ส่งทุกคนใน OA)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            lineNotify: defaultLineCfg({ ...prev.lineNotify, sendMode: 'push' }),
+                          }))
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                          getLineSendMode(formData.lineNotify) === 'push'
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Push (ระบุ User / Group ID)
+                      </button>
+                    </div>
+                  </div>
+
+                  {getLineSendMode(formData.lineNotify) === 'push' ? (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={formData.lineNotify?.targetId || ''}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              lineNotify: defaultLineCfg({
+                                ...prev.lineNotify,
+                                sendMode: 'push',
+                                targetId: e.target.value.trim(),
+                              }),
+                            }))
+                          }
+                          placeholder="วาง User ID (U...) หรือ Group ID (C...) ของช่าง/ร้าน"
+                          className="flex-1 min-w-0 px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={loadCapturedTargets}
+                          disabled={isRefreshingTargets}
+                          className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
+                          title="ดึง ID ล่าสุดที่ทักเข้ามาใน LINE OA ผ่าน Webhook"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingTargets ? 'animate-spin' : ''}`} />
+                          <span>ดึง ID จากแชท</span>
+                        </button>
+                      </div>
+
+                      {capturedTargets.length > 0 && (
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-slate-600 font-medium block">
+                            พบ ID ล่าสุดที่ทัก LINE OA (คลิกเพื่อเลือกใช้):
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {capturedTargets.map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    lineNotify: defaultLineCfg({
+                                      ...prev.lineNotify,
+                                      sendMode: 'push',
+                                      targetId: t.id,
+                                    }),
+                                  }))
+                                }
+                                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 text-[10px] font-mono cursor-pointer"
+                              >
+                                [{t.type}] {t.id.slice(0, 12)}...
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      โหมด <strong>Broadcast</strong> จะส่งแจ้งเตือนเข้าแชท LINE OA ของทุกคนที่เพิ่มเพื่อนไว้ทันทีโดยไม่ต้องกรอก User ID (ประหยัดโควต้าส่งและใช้งานง่ายที่สุด)
+                    </p>
+                  )}
+                </div>
+
+                {/* Webhook URL Box (Required for tapping "ยืนยันรับทราบ" inside LINE chat) */}
+                <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                      <Link2 className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>Webhook URL (สำหรับกดปุ่ม &quot;ยืนยันรับทราบ&quot; ใน LINE เพื่อปิดเสียงเตือน)</span>
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={webhookUrl}
+                      className="flex-1 min-w-0 px-3 py-1.5 text-xs bg-white border border-blue-200 rounded-lg font-mono text-slate-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(webhookUrl);
+                        setCopyFeedback('webhook');
+                        setTimeout(() => setCopyFeedback(null), 2000);
+                      }}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      {copyFeedback === 'webhook' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copyFeedback === 'webhook' ? 'คัดลอกแล้ว' : 'คัดลอก'}</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-blue-900/80 leading-relaxed">
+                    นำลิงก์นี้ไปวางใน LINE Developers Console &rarr; Messaging API &rarr; <strong>Webhook URL</strong> แล้วเปิด <strong>Use webhook</strong> จากนั้นเวลาเตือนใน LINE สามารถกดปุ่ม <strong>&quot;✅ ยืนยันรับทราบ&quot;</strong> หรือพิมพ์ <strong>&quot;ยืนยัน&quot;</strong> เพื่อหยุดเสียงเตือนในโปรแกรมได้ทันที
                   </p>
                 </div>
 
@@ -803,6 +983,60 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   </h5>
 
                   <div className="space-y-2.5">
+                    {/* Toggle 0: 30-Minute Repeating Reminder */}
+                    <div className="p-3.5 rounded-xl border-2 border-rose-200 bg-rose-50/50 space-y-2.5">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.lineNotify?.notifyBefore30Min ?? true}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              lineNotify: defaultLineCfg({
+                                ...prev.lineNotify,
+                                notifyBefore30Min: e.target.checked,
+                              }),
+                            }))
+                          }
+                          className="mt-0.5 w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500"
+                        />
+                        <div className="text-xs">
+                          <span className="font-bold text-rose-900 flex items-center gap-1.5">
+                            <AlarmClock className="w-4 h-4 text-rose-600 shrink-0" />
+                            <span>แจ้งเตือนก่อนเวลานัด 30 นาที (เตือนซ้ำจนกว่าจะกดยืนยันทาง LINE หรือในโปรแกรม)</span>
+                          </span>
+                          <span className="text-rose-800/80 block mt-0.5">
+                            ส่งเสียง + Flex Message พร้อมปุ่มกด &quot;ยืนยันรับทราบ&quot; เข้า LINE และส่งเสียงเตือนในแอปต่อเนื่อง
+                          </span>
+                        </div>
+                      </label>
+
+                      {(formData.lineNotify?.notifyBefore30Min ?? true) && (
+                        <div className="pl-7 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="font-semibold text-slate-700">ส่งเตือนซ้ำทาง LINE ทุกๆ:</span>
+                          <select
+                            value={formData.lineNotify?.repeatIntervalMinutes || 2}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                lineNotify: defaultLineCfg({
+                                  ...prev.lineNotify,
+                                  repeatIntervalMinutes: Number(e.target.value),
+                                }),
+                              }))
+                            }
+                            className="px-2.5 py-1 border border-rose-200 rounded-lg bg-white text-xs font-bold text-rose-900"
+                          >
+                            <option value={1}>1 นาที (ถี่มาก)</option>
+                            <option value={2}>2 นาที (แนะนำ)</option>
+                            <option value={3}>3 นาที</option>
+                            <option value={5}>5 นาที</option>
+                          </select>
+                          <span className="text-[11px] text-slate-500">จนกว่าจะกดยืนยัน</span>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Toggle 1: New Appointment */}
                     <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer">
                       <input
@@ -811,16 +1045,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
-                            lineNotify: {
-                              ...(prev.lineNotify || {
-                                enabled: true,
-                                token: '',
-                                notifyOnStatusChange: true,
-                                includeCustomerPhone: true,
-                                includeMapLink: true,
-                              }),
+                            lineNotify: defaultLineCfg({
+                              ...prev.lineNotify,
                               notifyOnNewJob: e.target.checked,
-                            },
+                            }),
                           }))
                         }
                         className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
@@ -843,16 +1071,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
-                            lineNotify: {
-                              ...(prev.lineNotify || {
-                                enabled: true,
-                                token: '',
-                                notifyOnNewJob: true,
-                                includeCustomerPhone: true,
-                                includeMapLink: true,
-                              }),
+                            lineNotify: defaultLineCfg({
+                              ...prev.lineNotify,
                               notifyOnStatusChange: e.target.checked,
-                            },
+                            }),
                           }))
                         }
                         className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
@@ -875,16 +1097,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
-                            lineNotify: {
-                              ...(prev.lineNotify || {
-                                enabled: true,
-                                token: '',
-                                notifyOnNewJob: true,
-                                notifyOnStatusChange: true,
-                                includeMapLink: true,
-                              }),
+                            lineNotify: defaultLineCfg({
+                              ...prev.lineNotify,
                               includeCustomerPhone: e.target.checked,
-                            },
+                            }),
                           }))
                         }
                         className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
@@ -907,16 +1123,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
-                            lineNotify: {
-                              ...(prev.lineNotify || {
-                                enabled: true,
-                                token: '',
-                                notifyOnNewJob: true,
-                                notifyOnStatusChange: true,
-                                includeCustomerPhone: true,
-                              }),
+                            lineNotify: defaultLineCfg({
+                              ...prev.lineNotify,
                               includeMapLink: e.target.checked,
-                            },
+                            }),
                           }))
                         }
                         className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
@@ -938,7 +1148,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   <button
                     type="button"
                     onClick={handleTestLineNotify}
-                    disabled={isTestingLine || !formData.lineNotify?.token?.trim()}
+                    disabled={isTestingLine || !activeLineToken}
                     className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-semibold rounded-xl text-xs flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     {isTestingLine ? (
@@ -946,16 +1156,24 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                     ) : (
                       <Send className="w-4 h-4 text-emerald-600" />
                     )}
-                    <span>{isTestingLine ? 'กำลังส่งทดสอบ...' : 'ทดสอบส่งข้อความแจ้งเตือน LINE'}</span>
+                    <span>{isTestingLine ? 'กำลังส่งทดสอบ...' : 'ทดสอบส่ง LINE Messaging API'}</span>
                   </button>
 
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>บันทึกการตั้งค่า LINE</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {isSaved && (
+                      <span className="text-xs font-medium text-emerald-600 flex items-center gap-1">
+                        <CheckCircle className="w-4 h-4" />
+                        บันทึกแล้ว
+                      </span>
+                    )}
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>บันทึกการตั้งค่า LINE</span>
+                    </button>
+                  </div>
                 </div>
 
                 {lineTestResult && (
@@ -985,54 +1203,49 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                   <div className="flex items-center gap-2">
                     <Smartphone className="w-4 h-4 text-emerald-600" />
                     <h4 className="font-bold text-slate-900 text-sm">
-                      ตัวอย่างข้อความแจ้งเตือนใน LINE
+                      ตัวอย่างแจ้งเตือนก่อนนัด 30 นาทีใน LINE
                     </h4>
                   </div>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
-                    Live Preview
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-semibold">
+                    Flex Message
                   </span>
                 </div>
 
                 {/* Simulated LINE Chat Screen */}
                 <div className="bg-[#7292a7] rounded-xl p-3 sm:p-4 text-slate-900 shadow-inner font-sans">
-                  {/* Chat header */}
                   <div className="flex items-center gap-2 pb-2 mb-3 border-b border-black/10">
-                    <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                      L
+                    <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                      OA
                     </div>
                     <div>
-                      <div className="text-xs font-bold text-white leading-tight">LINE Notify</div>
-                      <div className="text-[10px] text-white/80">บริการแจ้งเตือนอัตโนมัติ</div>
+                      <div className="text-xs font-bold text-white leading-tight">
+                        {formData.shopName || 'MyQueue LINE OA'}
+                      </div>
+                      <div className="text-[10px] text-white/80">LINE Messaging API</div>
                     </div>
                   </div>
 
-                  {/* Chat message bubble */}
-                  <div className="bg-white rounded-2xl rounded-tl-xs p-3 shadow-md space-y-2 text-xs text-slate-800 border border-slate-100 max-w-[95%]">
-                    <div className="flex items-center gap-1.5 font-bold text-emerald-700 border-b border-slate-100 pb-1.5">
-                      <BellRing className="w-3.5 h-3.5" />
-                      <span>[มีนัดหมายงานซ่อมใหม่] 🛠️</span>
+                  {/* Simulated Flex Bubble */}
+                  <div className="bg-white rounded-2xl overflow-hidden shadow-md border border-slate-100 max-w-[95%]">
+                    <div className="bg-red-600 text-white px-3.5 py-2.5">
+                      <div className="text-[10px] font-bold text-amber-200">🚨 แจ้งเตือนก่อนนัด 30 นาที</div>
+                      <div className="text-sm font-extrabold">อีก 30 นาที ถึงเวลานัด!</div>
                     </div>
-
-                    <div className="space-y-1 font-mono text-[11px] text-slate-700 leading-relaxed">
-                      <div><strong className="text-slate-900">คิวงาน:</strong> Q-01</div>
-                      <div><strong className="text-slate-900">สินค้า:</strong> แอร์ Daikin Inverter 18000 BTU</div>
-                      <div><strong className="text-slate-900">อาการ:</strong> แอร์ไม่เย็น มีเสียงดัง</div>
-                      <div><strong className="text-slate-900">นัดหมาย:</strong> วันนี้ 09:00 - 11:30</div>
-                      <div><strong className="text-slate-900">ลูกค้า:</strong> คุณธีรพงษ์ วัฒนาเจริญกิจ</div>
-                      {formData.lineNotify?.includeCustomerPhone && (
-                        <div><strong className="text-slate-900">โทร:</strong> 081-445-6789</div>
-                      )}
-                      {formData.lineNotify?.includeMapLink && (
-                        <div className="text-blue-600 truncate underline">
-                          📍 maps.google.com/?q=13.7314,100.5828
-                        </div>
-                      )}
-                      <div><strong className="text-slate-900">ช่าง:</strong> ช่างสมศักดิ์ ชำนาญแอร์</div>
+                    <div className="p-3 space-y-1.5 text-xs">
+                      <div className="font-bold text-slate-900">คิว Q-01 • แอร์ Daikin Inverter</div>
+                      <div className="text-red-600 font-bold text-[11px]">⏰ เวลานัด: วันนี้ (10:00 - 12:00)</div>
+                      <div className="text-slate-600 text-[11px]">👤 ลูกค้า: คุณสมชาย (081-234-5678)</div>
+                      <div className="text-[10px] text-amber-700 pt-1">
+                        ระบบจะเตือนซ้ำจนกว่าจะกดปุ่มยืนยัน หรือพิมพ์ &quot;ยืนยัน&quot; / &quot;รับทราบ&quot;
+                      </div>
                     </div>
-
-                    <div className="pt-2 border-t border-slate-100 text-[10px] text-slate-500 flex items-center justify-between">
-                      <span className="truncate">{formData.shopName || 'Repair Onsite Service'}</span>
-                      <span>เพิ่งส่ง</span>
+                    <div className="px-3 pb-3 space-y-1.5">
+                      <div className="w-full py-2 bg-emerald-600 text-white rounded-lg text-center font-bold text-[11px]">
+                        ✅ ยืนยันรับทราบ (ปิดเสียงเตือน)
+                      </div>
+                      <div className="w-full py-1.5 bg-slate-100 text-slate-700 rounded-lg text-center font-semibold text-[11px]">
+                        📱 เปิดแอป &amp; ปิดเสียงเตือน
+                      </div>
                     </div>
                   </div>
 
@@ -1104,7 +1317,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                     <BellRing className="w-8 h-8 mx-auto mb-1.5 opacity-30" />
                     <p>ยังไม่มีประวัติการส่งแจ้งเตือน</p>
                     <p className="text-[11px] mt-0.5 text-slate-400">
-                      เมื่อมีการสร้างนัดหมาย หรือเปลี่ยนสถานะงาน ประวัติจะแสดงที่นี่
+                      เมื่อมีการเตือนก่อนนัด 30 นาที หรือเปลี่ยนสถานะงาน ประวัติจะแสดงที่นี่
                     </p>
                   </div>
                 ) : (

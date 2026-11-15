@@ -534,7 +534,7 @@ export const JobModal: React.FC<JobModalProps> = ({
 
             <div>
               <label className="text-xs font-semibold text-slate-700 block mb-1">
-                เวลานัดหมาย
+                เวลานัดหมาย (แจ้งเตือนล่วงหน้า 30 นาที)
               </label>
               <div className="relative">
                 <Clock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -545,6 +545,22 @@ export const JobModal: React.FC<JobModalProps> = ({
                   placeholder="เช่น 09:30 - 11:30"
                   className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {['09:00 - 11:00', '10:00 - 12:00', '13:00 - 15:00', '15:00 - 17:00'].map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setAppointmentTime(slot)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                      appointmentTime === slot
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {slot.split(' ')[0]}
+                  </button>
+                ))}
               </div>
             </div>
 

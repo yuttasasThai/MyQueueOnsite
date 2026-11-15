@@ -1,4 +1,4 @@
-// File: /src/components/HeroCover.tsx | Revision: Rev 15 | Version: 1.3.0 | Modified: 2026-11-13
+// File: /src/components/HeroCover.tsx | Revision: Rev 18 | Version: 1.4.1 | Modified: 2026-11-15
 import React, { useState } from 'react';
 import {
   Clock,
@@ -15,6 +15,7 @@ import { RepairJob, ShopSettings } from '../types';
 import { APP_VERSION, APP_REVISION } from '../version';
 import { DEFAULT_COVER_IMAGE, resolveCoverImage } from '../data/initialData';
 import { StatusStepperIcons } from './StatusStepperIcons';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeroCoverProps {
   jobs: RepairJob[];
@@ -256,6 +257,9 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
             </button>
           )}
         </div>
+
+        {/* PWA Background Alarm & Install Card (เตือนก่อน 1 ชม. แม้ปิด Chrome) */}
+        <PWAInstallButton jobs={jobs} variant="hero" />
 
         {/* Admin Quick Button / Status Bar */}
         <div className="pt-2.5 mt-2 border-t border-slate-700/60 w-full flex items-center justify-center">
