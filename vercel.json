@@ -3,7 +3,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!assets/|api/).*)",
+      "source": "/((?!assets/|api/|sw\\.js|alarm-sw\\.js|workbox-|registerSW\\.js|manifest\\.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp|js|css|json|webmanifest)$).*)",
       "destination": "/index.html"
     }
   ]
