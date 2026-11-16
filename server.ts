@@ -196,9 +196,14 @@ async function replyLineMessage(channelAccessToken: string, replyToken: string, 
 }
 
 function buildServerReminderFlex(s: StoredSchedule, cfg: StoredLineConfig) {
-  const minsLeft = Math.max(0, Math.round((s.appointmentAt - Date.now()) / 60000));
+  const diffMins = Math.round((s.appointmentAt - Date.now()) / 60000);
+  const headerTitle = diffMins < 0 ? '🔴 แจ้งเตือนเกินคิวงาน!' : '🚨 แจ้งเตือนก่อนนัด 30 นาที';
   const headerSubtitle =
-    minsLeft > 0 ? `อีก ${minsLeft} นาที ถึงเวลานัด!` : 'ถึงเวลานัดหมายซ่อมแล้ว!';
+    diffMins > 0
+      ? `อีก ${diffMins} นาที ถึงเวลานัด!`
+      : diffMins === 0
+      ? 'ถึงเวลานัดหมายซ่อมแล้ว!'
+      : `เลยเวลานัดมาแล้ว ${Math.abs(diffMins)} นาที!`;
   const cleanOrigin = (cfg.appBaseUrl || '').replace(/\/$/, '');
   const ackUri = cleanOrigin
     ? `${cleanOrigin}/?ack_alarm=${encodeURIComponent(s.ackKey)}&alarm_job=${encodeURIComponent(s.id)}`
@@ -252,7 +257,7 @@ function buildServerReminderFlex(s: StoredSchedule, cfg: StoredLineConfig) {
         backgroundColor: '#DC2626',
         paddingAll: '14px',
         contents: [
-          { type: 'text', text: '🚨 แจ้งเตือนก่อนนัด 30 นาที', color: '#FEF3C7', size: 'xs', weight: 'bold' },
+          { type: 'text', text: headerTitle, color: '#FEF3C7', size: 'xs', weight: 'bold' },
           { type: 'text', text: headerSubtitle, color: '#FFFFFF', size: 'lg', weight: 'bold', margin: 'xs' },
         ],
       },
@@ -318,7 +323,7 @@ async function runBackgroundReminderTick() {
 
   for (const s of store.schedules) {
     if (store.ackKeys[s.ackKey]) continue;
-    if (now >= s.reminderAt && now <= s.appointmentAt + 30 * 60 * 1000) {
+    if (now >= s.reminderAt && now <= s.appointmentAt + 48 * 60 * 60 * 1000) {
       const last = store.lastSentAt[s.ackKey] || 0;
       if (now - last >= repeatMs) {
         store.lastSentAt[s.ackKey] = now;
