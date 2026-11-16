@@ -586,7 +586,8 @@ async function startServer() {
             item === 'dist' ||
             item === '.git' ||
             item === '.cache' ||
-            item === '.npm'
+            item === '.npm' ||
+            item === 'aistudio'
           ) {
             continue;
           }
@@ -614,6 +615,7 @@ async function startServer() {
         'README.md',
         'metadata.json',
         '.npmrc',
+        '.gitignore',
         'vercel.json',
       ];
 

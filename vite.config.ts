@@ -53,7 +53,11 @@ export default defineConfig(() => {
         },
         workbox: {
           importScripts: ['/alarm-sw.js'],
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globIgnores: ['**/aistudio/**'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
             {
