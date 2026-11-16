@@ -1,9 +1,9 @@
-// File: /src/version.ts | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
+// File: /src/version.ts | Revision: Rev 20 | Version: 1.5.1 | Modified: 2026-11-16
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.5.0';
-export const APP_REVISION = 'Rev 19';
-export const APP_RELEASE_DATE = '2026-11-15';
+export const APP_VERSION = '1.5.1';
+export const APP_REVISION = 'Rev 20';
+export const APP_RELEASE_DATE = '2026-11-16';
 
 export interface RevisionRecord {
   revision: string;
@@ -14,6 +14,24 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 20',
+    version: '1.5.1',
+    date: '2026-11-16',
+    description:
+      'แก้ไขปัญหา Build & Deploy บน GitHub/Vercel ที่ทำให้ยังค้างเวอร์ชัน 1.4.0: เพิ่ม "node" types และ esModuleInterop ใน tsconfig.json พร้อมแก้ import ของ api/_store.ts ให้ Vercel Serverless ผ่าน 100%, ตัดภาพแคปหน้าจอแชทที่ไม่จำเป็นออกจากไฟล์ ZIP Source Code และจาก PWA Precache (ลดขนาด ZIP จาก 13.5MB เหลือ ~4.8MB อัปโหลด GitHub ง่ายขึ้น), เพิ่ม Header no-cache บน vercel.json และ Auto-Reload ทันทีเมื่อ Service Worker อัปเดตเวอร์ชันใหม่',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'tsconfig.json',
+      'api/_store.ts',
+      'vercel.json',
+      'vite.config.ts',
+      'src/main.tsx',
+      'server.ts',
+      'src/components/DownloadSourceCodeModal.tsx',
+    ],
+  },
   {
     revision: 'Rev 19',
     version: '1.5.0',
