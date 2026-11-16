@@ -17,6 +17,7 @@ import { DownloadSourceCodeModal } from './components/DownloadSourceCodeModal';
 import { ExpiredWarrantyModal } from './components/ExpiredWarrantyModal';
 import { DailyQueueAlarmModal } from './components/DailyQueueAlarmModal';
 import { AppointmentReminderModal } from './components/AppointmentReminderModal';
+import { OverdueTwoDaysAlarmModal } from './components/OverdueTwoDaysAlarmModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AdminPinModal } from './components/AdminPinModal';
 import { BootLoadingScreen } from './components/BootLoadingScreen';
@@ -63,11 +64,13 @@ import {
   AppointmentReminderSchedule,
   buildUpcomingAppointmentSchedules,
   getDueAppointmentReminders,
+  getOverdueTwoDaysUnclosedJobs,
   loadAcknowledgedAppointmentKeys,
   saveAcknowledgedAppointmentKey,
   showAppointmentSystemNotification,
   syncSchedulesToServiceWorker,
 } from './services/appointmentAlarm';
+import { warrantyAlarmService } from './services/soundAlarm';
 import { ShieldAlert, AlertTriangle, KeyRound, RotateCcw, BellRing, CheckCircle, Phone, Lock } from 'lucide-react';
 
 export default function App() {
@@ -222,6 +225,23 @@ export default function App() {
 
   const unacknowledgedDailyJobs = todayPendingJobs.filter(
     (j) => !acknowledgedDailyJobIds.includes(j.id)
+  );
+
+  // Overdue > 2 Days Unclosed Jobs Alarm ("มีงานค้างยังไม่ปิดงานเกิน2วัน กดเพื่อยืนยัน")
+  const overdue2DaysAckKey = `acknowledged_overdue_2days_${todayStr}`;
+  const [isOverdue2DaysModalOpen, setIsOverdue2DaysModalOpen] = useState(false);
+  const [acknowledgedOverdue2DaysIds, setAcknowledgedOverdue2DaysIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(overdue2DaysAckKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const overdueTwoDaysItems = React.useMemo(() => getOverdueTwoDaysUnclosedJobs(jobs), [jobs]);
+  const unacknowledgedOverdue2DaysItems = overdueTwoDaysItems.filter(
+    (item) => !acknowledgedOverdue2DaysIds.includes(item.job.id)
   );
 
   // Expired Warranty Modal and Audio Alarm state
@@ -477,17 +497,43 @@ export default function App() {
     syncSchedulesToServiceWorker(jobs);
   };
 
-  // Trigger 30-min-before alarm highest priority; otherwise Daily Pending Queue Alarm, then Expired Warranty Alarm
+  // Pre-unlock browser AudioContext & Thai voices on first pointer/touch interaction
+  useEffect(() => {
+    const unlockOnce = () => {
+      warrantyAlarmService.unlockAudio();
+    };
+    window.addEventListener('pointerdown', unlockOnce, { passive: true, once: true });
+    window.addEventListener('touchstart', unlockOnce, { passive: true, once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockOnce);
+      window.removeEventListener('touchstart', unlockOnce);
+    };
+  }, []);
+
+  // Trigger Priority Queue:
+  // 1) Before-30m & Overdue Queue Alarm (highest priority)
+  // 2) Overdue > 2 Days Unclosed Jobs Alarm ("มีงานค้างยังไม่ปิดงานเกิน2วัน กดเพื่อยืนยัน")
+  // 3) Daily Pending Queue Alarm
+  // 4) Expired Warranty Alarm
   useEffect(() => {
     if (isBooting || isUserLinkLoginOpen || showExpiredWarning) return;
     if (dueThirtyMinItems.length > 0) return;
 
-    if (unacknowledgedDailyJobs.length > 0) {
+    if (unacknowledgedOverdue2DaysItems.length > 0) {
+      setIsOverdue2DaysModalOpen(true);
+      return;
+    }
+
+    if (!isOverdue2DaysModalOpen && unacknowledgedDailyJobs.length > 0) {
       setIsDailyQueueModalOpen(true);
       return;
     }
 
-    if (!isDailyQueueModalOpen && unacknowledgedExpiredJobs.length > 0) {
+    if (
+      !isOverdue2DaysModalOpen &&
+      !isDailyQueueModalOpen &&
+      unacknowledgedExpiredJobs.length > 0
+    ) {
       setIsExpiredWarrantyModalOpen(true);
     }
   }, [
@@ -496,10 +542,24 @@ export default function App() {
     isUserLinkLoginOpen,
     showExpiredWarning,
     dueThirtyMinItems.length,
+    isOverdue2DaysModalOpen,
+    unacknowledgedOverdue2DaysItems.length,
     isDailyQueueModalOpen,
     unacknowledgedDailyJobs.length,
     unacknowledgedExpiredJobs.length,
   ]);
+
+  const handleAcknowledgeOverdue2Days = () => {
+    const allIds = overdueTwoDaysItems.map((item) => item.job.id);
+    const merged = Array.from(new Set([...acknowledgedOverdue2DaysIds, ...allIds]));
+    setAcknowledgedOverdue2DaysIds(merged);
+    try {
+      localStorage.setItem(overdue2DaysAckKey, JSON.stringify(merged));
+    } catch (e) {
+      console.warn('Failed to save acknowledged >2-day overdue jobs', e);
+    }
+    setIsOverdue2DaysModalOpen(false);
+  };
 
   const handleAcknowledgeDailyQueue = () => {
     const allTodayIds = todayPendingJobs.map((j) => j.id);
@@ -1274,7 +1334,7 @@ export default function App() {
         />
       )}
 
-      {/* Modal: 30-Minute-Before Appointment Voice + LINE Messaging API Alarm */}
+      {/* Modal: 30-Min-Before & Overdue Queue Appointment Voice + LINE Messaging API Alarm */}
       <AppointmentReminderModal
         dueItems={dueThirtyMinItems}
         isOpen={!isBooting && !isUserLinkLoginOpen && !showExpiredWarning && dueThirtyMinItems.length > 0}
@@ -1289,9 +1349,32 @@ export default function App() {
         onResendLineNow={() => dispatchLineThirtyMinReminder(dueThirtyMinItems, true)}
       />
 
+      {/* Modal: Overdue > 2 Days Unclosed Jobs Voice Alarm ("มีงานค้างยังไม่ปิดงานเกิน2วัน กดเพื่อยืนยัน") */}
+      <OverdueTwoDaysAlarmModal
+        isOpen={
+          !isBooting &&
+          !isUserLinkLoginOpen &&
+          !showExpiredWarning &&
+          isOverdue2DaysModalOpen &&
+          dueThirtyMinItems.length === 0
+        }
+        overdueItems={overdueTwoDaysItems}
+        onAcknowledge={handleAcknowledgeOverdue2Days}
+        onSelectJob={(job) => {
+          setSelectedJob(job);
+        }}
+      />
+
       {/* Modal: Daily Pending Queue Voice Alarm ("วันนี้มีกี่คิวงาน กดยืนยันเพื่อรับทราบ" หยุดเองเมื่อเลย 5 นาที) */}
       <DailyQueueAlarmModal
-        isOpen={isDailyQueueModalOpen && dueThirtyMinItems.length === 0}
+        isOpen={
+          !isBooting &&
+          !isUserLinkLoginOpen &&
+          !showExpiredWarning &&
+          isDailyQueueModalOpen &&
+          !isOverdue2DaysModalOpen &&
+          dueThirtyMinItems.length === 0
+        }
         pendingJobs={todayPendingJobs}
         onAcknowledge={handleAcknowledgeDailyQueue}
         onSelectJob={(job) => {
@@ -1301,7 +1384,15 @@ export default function App() {
 
       {/* Modal: Expired Warranty Alarm & Voice Alert Pop up (งานหมดระยะประกันพร้อมเสียงเตือนซ้ำๆ) */}
       <ExpiredWarrantyModal
-        isOpen={isExpiredWarrantyModalOpen && !isDailyQueueModalOpen && dueThirtyMinItems.length === 0}
+        isOpen={
+          !isBooting &&
+          !isUserLinkLoginOpen &&
+          !showExpiredWarning &&
+          isExpiredWarrantyModalOpen &&
+          !isDailyQueueModalOpen &&
+          !isOverdue2DaysModalOpen &&
+          dueThirtyMinItems.length === 0
+        }
         expiredJobs={allExpiredWarrantyJobs}
         onAcknowledgeAll={handleAcknowledgeAllExpired}
         onSelectJob={(job) => {
