@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 20 | Version: 1.5.1 | Modified: 2026-11-16
+// File: /src/version.ts | Revision: Rev 21 | Version: 1.5.2 | Modified: 2026-11-16
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.5.1';
-export const APP_REVISION = 'Rev 20';
+export const APP_VERSION = '1.5.2';
+export const APP_REVISION = 'Rev 21';
 export const APP_RELEASE_DATE = '2026-11-16';
 
 export interface RevisionRecord {
@@ -14,6 +14,27 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 21',
+    version: '1.5.2',
+    date: '2026-11-16',
+    description:
+      'เพิ่มระบบเสียงเตือนสำหรับงานที่ค้างเกิน 2 วันและยังไม่ปิดงาน ("มีงานค้างยังไม่ปิดงานเกิน2วัน กดเพื่อยืนยัน") พร้อมหน้าต่างยืนยันรับทราบ, ปรับปรุงระบบแจ้งเตือนคิวงานให้มีเสียงเตือนทั้ง "ก่อนถึงคิว 30 นาที" และ "เกินคิวงานแล้ว" (สูงสุด 48 ชม.) ทั้งเสียงในแอป PWA และ LINE Messaging API, แก้ไขปัญหา Modal ที่ปิดอยู่สั่งตัดเสียงเตือนของ Modal อื่น, และปรับปรุง Web Audio + Thai TTS สำหรับ Android Chrome',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'src/services/soundAlarm.ts',
+      'src/services/appointmentAlarm.ts',
+      'src/services/lineNotify.ts',
+      'src/components/OverdueTwoDaysAlarmModal.tsx',
+      'src/components/AppointmentReminderModal.tsx',
+      'src/components/DailyQueueAlarmModal.tsx',
+      'src/components/ExpiredWarrantyModal.tsx',
+      'src/App.tsx',
+      'public/alarm-sw.js',
+      'server.ts',
+    ],
+  },
   {
     revision: 'Rev 20',
     version: '1.5.1',
