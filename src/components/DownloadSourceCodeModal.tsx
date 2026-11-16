@@ -37,6 +37,7 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
 }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
   const [copyNotice, setCopyNotice] = useState(false);
 
   if (!isOpen) return null;
@@ -94,13 +95,15 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
     URL.revokeObjectURL(url);
   };
 
-  // Download complete full source code containing real src/ folder and all assets
+  // Download complete full source code containing real src/, public/, api/ and config files
   const handleDownloadFullSourceCode = async () => {
     try {
       setIsZipping(true);
+      setDownloadError('');
 
-      const res = await fetch('/api/download-source-zip');
-      if (res.ok) {
+      const res = await fetch('/api/download-source-zip', { cache: 'no-store' });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('zip')) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -116,15 +119,16 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
         return;
       }
 
-      // Fallback direct navigation
-      window.location.href = '/api/download-source-zip';
       setIsZipping(false);
-      setDownloadSuccess(true);
+      setDownloadError(
+        'ไม่สามารถดาวน์โหลดไฟล์ ZIP จากโดเมนนี้ได้ (กรุณากดดาวน์โหลด Source Code จากหน้าพรีวิวหลักของระบบ)'
+      );
     } catch (err) {
       console.error('Failed to download source zip:', err);
-      // Direct navigation fallback
-      window.location.href = '/api/download-source-zip';
       setIsZipping(false);
+      setDownloadError(
+        'เกิดข้อผิดพลาดในการเชื่อมต่อเพื่อดาวน์โหลดไฟล์ ZIP กรุณาลองใหม่อีกครั้ง'
+      );
     }
   };
 
@@ -268,14 +272,33 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
           </button>
         </div>
 
+        {downloadError && (
+          <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-2xl text-xs leading-relaxed">
+            {downloadError}
+          </div>
+        )}
+
         {downloadSuccess && (
           <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs flex items-center gap-2 animate-in fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span className="font-medium">
-              ดาวน์โหลด Source Code ครบชุด (รวมโฟลเดอร์ src/) สำเร็จเรียบร้อยแล้ว
+              ดาวน์โหลด Source Code v{APP_VERSION} (รวม src, public, api ครบชุด) สำเร็จแล้ว
             </span>
           </div>
         )}
+
+        {/* GitHub + Vercel Deploy Tip */}
+        <div className="p-3.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl text-[11px] text-blue-950 space-y-1.5 leading-relaxed">
+          <div className="font-bold text-blue-900 flex items-center gap-1.5">
+            <Terminal className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>คำแนะนำการอัปโหลดขึ้น GitHub ให้ Vercel อัปเดตเป็น v{APP_VERSION}:</span>
+          </div>
+          <ol className="list-decimal list-inside space-y-0.5 text-blue-900/90">
+            <li>แตกไฟล์ <strong>.zip</strong> ที่ดาวน์โหลดออกมา</li>
+            <li>นำไฟล์ด้านในทั้งหมด (<code className="bg-white/80 px-1 rounded">src</code>, <code className="bg-white/80 px-1 rounded">public</code>, <code className="bg-white/80 px-1 rounded">api</code>, <code className="bg-white/80 px-1 rounded">package.json</code>, <code className="bg-white/80 px-1 rounded">vercel.json</code>) วางทับที่หน้าหลัก (Root) ของ GitHub Repo (อย่าซ้อนในโฟลเดอร์ย่อย)</li>
+            <li>รอ Vercel Deploy สถานะ <strong>Ready</strong> แล้วรีเฟรชหน้าเว็บ 1 ครั้ง</li>
+          </ol>
+        </div>
 
         {/* Footer */}
         <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
