@@ -52,14 +52,20 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cacheId: 'myqueue-onsite-v159',
           importScripts: ['/alarm-sw.js'],
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          navigateFallback: null,
+          globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2}'],
           globIgnores: ['**/aistudio/**'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
+            {
+              urlPattern: /^\/api\/.*/i,
+              handler: 'NetworkOnly',
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
@@ -91,7 +97,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'classic',
         },
       }),

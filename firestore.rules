@@ -1,0 +1,539 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection Health Test Document (Public get-only connectivity probe)
+    match /test/connection {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    // =========================================================
+    // Phase 3: Hardened Global Helpers
+    // =========================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    // Bootstrapped Admin (pure token check — safe inside list rules with zero DB reads)
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'yuttasas.54@gmail.com';
+    }
+
+    // Full Admin check (Bootstrapped email OR /admins/{uid} marker — for single-doc get/create/update/delete)
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOptString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptNumber(data, key) {
+      return !(key in data) || (data[key] is number);
+    }
+
+    function isOptBool(data, key) {
+      return !(key in data) || (data[key] is bool);
+    }
+
+    function hasCreatedTimestamps(data) {
+      return data.createdAt == request.time && data.updatedAt == request.time;
+    }
+
+    function hasUpdatedTimestamps(data, prev) {
+      return data.createdAt == prev.createdAt && data.updatedAt == request.time;
+    }
+
+    // =========================================================
+    // Validation Blueprints (Phase 4)
+    // =========================================================
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'activeWorkspaceId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'role', 'activeWorkspaceId', 'linkedUserId', 'linkedUsername', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['admin', 'user']
+        && isValidId(data.activeWorkspaceId)
+        && isOptString(data, 'linkedUserId', 128)
+        && isOptString(data, 'linkedUsername', 80)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'phone', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && isOptString(data, 'phone', 40)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminMarker(data, adminUid) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == adminUid && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspace(data, workspaceId) {
+      return data.keys().hasAll(['workspaceId', 'ownerUid', 'kind', 'label', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['workspaceId', 'ownerUid', 'kind', 'boundUserId', 'boundUsername', 'label', 'createdAt', 'updatedAt'])
+        && data.workspaceId is string && data.workspaceId == workspaceId && isValidId(data.workspaceId)
+        && isValidId(data.ownerUid)
+        && data.kind in ['admin_master', 'user_workspace']
+        && isOptString(data, 'boundUserId', 128)
+        && isOptString(data, 'boundUsername', 80)
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceMember(data, memberUid) {
+      return data.keys().hasAll(['uid', 'ownerUid', 'role', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'ownerUid', 'role', 'displayName', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == memberUid && isValidId(data.uid)
+        && isValidId(data.ownerUid)
+        && data.role in ['owner', 'editor']
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidShopSettingsDoc(data) {
+      return data.keys().hasAll(['ownerUid', 'shopName', 'coverTitle', 'repairCategories', 'technicians', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'ownerUid', 'shopName', 'phone', 'lineId', 'lineUrl', 'facebook', 'facebookUrl',
+          'address', 'coverImage', 'coverTitle', 'coverSubtitle', 'repairCategories', 'technicians',
+          'lineEnabled', 'lineProvider', 'lineSendMode', 'notifyOnNewJob', 'notifyOnStatusChange',
+          'notifyBefore30Min', 'repeatIntervalMinutes', 'includeCustomerPhone', 'includeMapLink',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && data.shopName is string && data.shopName.size() <= 200
+        && isOptString(data, 'phone', 60)
+        && isOptString(data, 'lineId', 120)
+        && isOptString(data, 'lineUrl', 400)
+        && isOptString(data, 'facebook', 200)
+        && isOptString(data, 'facebookUrl', 400)
+        && isOptString(data, 'address', 500)
+        && isOptString(data, 'coverImage', 350000)
+        && data.coverTitle is string && data.coverTitle.size() <= 150
+        && isOptString(data, 'coverSubtitle', 200)
+        && data.repairCategories is list && data.repairCategories.size() <= 50
+        && (data.repairCategories.size() == 0 || (data.repairCategories[0] is string && data.repairCategories[0].size() <= 100))
+        && data.technicians is list && data.technicians.size() <= 50
+        && (data.technicians.size() == 0 || (data.technicians[0] is string && data.technicians[0].size() <= 100))
+        && isOptBool(data, 'lineEnabled')
+        && (!('lineProvider' in data) || data.lineProvider in ['messaging_api', 'line_notify'])
+        && (!('lineSendMode' in data) || data.lineSendMode in ['push', 'broadcast'])
+        && isOptBool(data, 'notifyOnNewJob')
+        && isOptBool(data, 'notifyOnStatusChange')
+        && isOptBool(data, 'notifyBefore30Min')
+        && isOptNumber(data, 'repeatIntervalMinutes')
+        && isOptBool(data, 'includeCustomerPhone')
+        && isOptBool(data, 'includeMapLink')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceSecretsDoc(data) {
+      return data.keys().hasAll(['ownerUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'ownerUid', 'adminPassword', 'adminSecretToken',
+          'lineToken', 'lineChannelAccessToken', 'lineChannelSecret', 'lineTargetId',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerUid)
+        && isOptString(data, 'adminPassword', 120)
+        && isOptString(data, 'adminSecretToken', 160)
+        && isOptString(data, 'lineToken', 500)
+        && isOptString(data, 'lineChannelAccessToken', 500)
+        && isOptString(data, 'lineChannelSecret', 200)
+        && isOptString(data, 'lineTargetId', 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRepairJobDoc(data, jobId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'queueNumber', 'loggedDate', 'product',
+          'customerName', 'status', 'estimatedCost', 'warrantyDays',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'queueNumber', 'loggedDate', 'product', 'productCategory',
+          'jobDetails', 'symptoms', 'customerName', 'customerPhone', 'customerLineId',
+          'customerFacebook', 'customerAddress', 'customerMapCoordinates',
+          'appointmentDate', 'appointmentTime', 'estimatedCost', 'actualCost',
+          'status', 'warrantyDays', 'warrantyStartDate', 'warrantyEndDate',
+          'assignedUserId', 'assignedUserName', 'closedAt', 'cancelReason', 'notes',
+          'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == jobId && isValidId(data.id)
+        && isValidId(data.ownerUid)
+        && data.queueNumber is string && data.queueNumber.size() >= 1 && data.queueNumber.size() <= 40
+        && data.loggedDate is string && data.loggedDate.size() <= 40
+        && data.product is string && data.product.size() >= 1 && data.product.size() <= 200
+        && isOptString(data, 'productCategory', 120)
+        && isOptString(data, 'jobDetails', 1000)
+        && isOptString(data, 'symptoms', 1000)
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 160
+        && isOptString(data, 'customerPhone', 60)
+        && isOptString(data, 'customerLineId', 120)
+        && isOptString(data, 'customerFacebook', 160)
+        && isOptString(data, 'customerAddress', 500)
+        && isOptString(data, 'customerMapCoordinates', 100)
+        && isOptString(data, 'appointmentDate', 40)
+        && isOptString(data, 'appointmentTime', 80)
+        && data.estimatedCost is number && data.estimatedCost >= 0
+        && (!('actualCost' in data) || data.actualCost == null || (data.actualCost is number && data.actualCost >= 0))
+        && data.status in ['รับงาน', 'กำลังไป', 'กำลังซ่อม', 'ซ่อมแล้ว', 'ปิดงาน', 'นัดหมายต่อ', 'ยกเลิก']
+        && data.warrantyDays is number && data.warrantyDays >= 0
+        && isOptString(data, 'warrantyStartDate', 40)
+        && isOptString(data, 'warrantyEndDate', 40)
+        && isOptString(data, 'assignedUserId', 128)
+        && isOptString(data, 'assignedUserName', 160)
+        && isOptString(data, 'closedAt', 40)
+        && isOptString(data, 'cancelReason', 500)
+        && isOptString(data, 'notes', 1500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidJobMediaDoc(data, mediaId) {
+      return data.keys().hasAll(['id', 'ownerUid', 'jobId', 'jobStatus', 'mediaType', 'dataUrl', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'jobId', 'jobStatus', 'mediaType', 'dataUrl',
+          'thumbnailDataUrl', 'fileName', 'mimeType', 'sizeBytes', 'durationSec',
+          'itemCreatedAt', 'note', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == mediaId && isValidId(data.id)
+        && isValidId(data.ownerUid)
+        && isValidId(data.jobId)
+        && data.jobStatus in ['รับงาน', 'กำลังไป', 'กำลังซ่อม', 'ซ่อมแล้ว', 'ปิดงาน', 'นัดหมายต่อ', 'ยกเลิก']
+        && data.mediaType in ['image', 'video']
+        && data.dataUrl is string && data.dataUrl.size() >= 1 && data.dataUrl.size() <= 450000
+        && isOptString(data, 'thumbnailDataUrl', 200000)
+        && isOptString(data, 'fileName', 200)
+        && isOptString(data, 'mimeType', 100)
+        && isOptNumber(data, 'sizeBytes')
+        && isOptNumber(data, 'durationSec')
+        && isOptString(data, 'itemCreatedAt', 60)
+        && isOptString(data, 'note', 400)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserAccountDoc(data, accountId) {
+      return data.keys().hasAll(['id', 'ownerUid', 'name', 'username', 'role', 'linkToken', 'expiresAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'name', 'phone', 'username', 'password', 'role',
+          'linkToken', 'userLink', 'expiresAt', 'renewalCode', 'renewalCodesSummary',
+          'accountCreatedAt', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == accountId && isValidId(data.id)
+        && isValidId(data.ownerUid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && isOptString(data, 'phone', 60)
+        && data.username is string && data.username.size() >= 1 && data.username.size() <= 80
+        && isOptString(data, 'password', 120)
+        && data.role in ['admin', 'user']
+        && data.linkToken is string && data.linkToken.size() >= 1 && data.linkToken.size() <= 128
+        && isOptString(data, 'userLink', 600)
+        && data.expiresAt is string && data.expiresAt.size() >= 1 && data.expiresAt.size() <= 60
+        && isOptString(data, 'renewalCode', 120)
+        && isOptString(data, 'renewalCodesSummary', 4000)
+        && isOptString(data, 'accountCreatedAt', 60)
+        && isOptString(data, 'notes', 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isWorkspaceOwner(workspaceId) {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
+    }
+
+    function canAccessWorkspace(workspaceId) {
+      return isWorkspaceOwner(workspaceId) || isWorkspaceMember(workspaceId) || isAdmin();
+    }
+
+    // =========================================================
+    // Collection Match Rules
+    // =========================================================
+
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(adminUid) && isAdmin() && isValidAdminMarker(incoming(), adminUid) && hasCreatedTimestamps(incoming());
+      allow update: if isValidId(adminUid) && isAdmin() && isValidAdminMarker(incoming(), adminUid) && hasUpdatedTimestamps(incoming(), existing())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+      allow delete: if isValidId(adminUid) && isAdmin();
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isVerifiedUser() && (resource.data.uid == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && hasCreatedTimestamps(incoming())
+        && (incoming().role == 'user' || isAdmin());
+
+      allow update: if isValidId(userId)
+        && (isOwner(userId) || isAdmin())
+        && isValidUserProfile(incoming(), userId)
+        && hasUpdatedTimestamps(incoming(), existing())
+        && incoming().uid == existing().uid
+        && (
+          isAdmin() ||
+          (
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'activeWorkspaceId', 'linkedUserId', 'linkedUsername', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(userId) && isValidId(docId)
+          && isOwner(userId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && hasCreatedTimestamps(incoming());
+        allow update: if isValidId(userId) && isValidId(docId)
+          && (isOwner(userId) || isAdmin())
+          && isValidUserPrivateInfo(incoming(), userId)
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().uid == existing().uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    match /workspaces/{workspaceId} {
+      allow get: if isValidId(workspaceId) && isVerifiedUser() && (
+        workspaceId == ('ws_' + request.auth.uid) ||
+        (resource != null && resource.data.ownerUid == request.auth.uid) ||
+        isWorkspaceMember(workspaceId) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(workspaceId)
+        && isVerifiedUser()
+        && isValidWorkspace(incoming(), workspaceId)
+        && hasCreatedTimestamps(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && (incoming().kind == 'user_workspace' || isAdmin());
+
+      allow update: if isValidId(workspaceId)
+        && (isWorkspaceOwner(workspaceId) || isAdmin())
+        && isValidWorkspace(incoming(), workspaceId)
+        && hasUpdatedTimestamps(incoming(), existing())
+        && incoming().workspaceId == existing().workspaceId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().kind == existing().kind
+        && (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['boundUserId', 'boundUsername', 'label', 'updatedAt'])
+        );
+
+      allow delete: if isValidId(workspaceId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+
+      match /members/{memberUid} {
+        allow get: if isValidId(workspaceId) && isValidId(memberUid) && (canAccessWorkspace(workspaceId) || isOwner(memberUid));
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || resource.data.uid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isValidId(workspaceId) && isValidId(memberUid)
+          && (isWorkspaceOwner(workspaceId) || isAdmin())
+          && isValidWorkspaceMember(incoming(), memberUid)
+          && hasCreatedTimestamps(incoming());
+        allow update: if isValidId(workspaceId) && isValidId(memberUid)
+          && (isWorkspaceOwner(workspaceId) || isAdmin())
+          && isValidWorkspaceMember(incoming(), memberUid)
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().uid == existing().uid
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'displayName', 'updatedAt']);
+        allow delete: if isValidId(workspaceId) && isValidId(memberUid) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /settings/{settingId} {
+        allow get: if isValidId(workspaceId) && isValidId(settingId) && canAccessWorkspace(workspaceId);
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isValidId(workspaceId) && isValidId(settingId)
+          && canAccessWorkspace(workspaceId)
+          && isValidShopSettingsDoc(incoming())
+          && incoming().ownerUid == request.auth.uid
+          && hasCreatedTimestamps(incoming());
+        allow update: if isValidId(workspaceId) && isValidId(settingId)
+          && canAccessWorkspace(workspaceId)
+          && isValidShopSettingsDoc(incoming())
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().ownerUid == existing().ownerUid
+          && (
+            isAdmin() ||
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'shopName', 'phone', 'lineId', 'lineUrl', 'facebook', 'facebookUrl',
+              'address', 'coverImage', 'coverTitle', 'coverSubtitle', 'repairCategories', 'technicians',
+              'lineEnabled', 'lineProvider', 'lineSendMode', 'notifyOnNewJob', 'notifyOnStatusChange',
+              'notifyBefore30Min', 'repeatIntervalMinutes', 'includeCustomerPhone', 'includeMapLink',
+              'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(workspaceId) && isValidId(settingId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /private/{secretId} {
+        allow get: if isValidId(workspaceId) && isValidId(secretId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(workspaceId) && isValidId(secretId)
+          && (isWorkspaceOwner(workspaceId) || isAdmin())
+          && isValidWorkspaceSecretsDoc(incoming())
+          && incoming().ownerUid == request.auth.uid
+          && hasCreatedTimestamps(incoming());
+        allow update: if isValidId(workspaceId) && isValidId(secretId)
+          && (isWorkspaceOwner(workspaceId) || isAdmin())
+          && isValidWorkspaceSecretsDoc(incoming())
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'adminPassword', 'adminSecretToken',
+            'lineToken', 'lineChannelAccessToken', 'lineChannelSecret', 'lineTargetId',
+            'updatedAt'
+          ]);
+        allow delete: if isValidId(workspaceId) && isValidId(secretId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /jobs/{jobId} {
+        allow get: if isValidId(workspaceId) && isValidId(jobId) && canAccessWorkspace(workspaceId);
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+
+        allow create: if isValidId(workspaceId) && isValidId(jobId)
+          && canAccessWorkspace(workspaceId)
+          && isValidRepairJobDoc(incoming(), jobId)
+          && incoming().ownerUid == request.auth.uid
+          && hasCreatedTimestamps(incoming());
+
+        allow update: if isValidId(workspaceId) && isValidId(jobId)
+          && canAccessWorkspace(workspaceId)
+          && isValidRepairJobDoc(incoming(), jobId)
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && (
+            isAdmin() ||
+            (
+              // Terminal state protection: cancelled jobs cannot be mutated by non-admins
+              existing().status != 'ยกเลิก' &&
+              (
+                // Action: Edit closing cost/warranty on closed jobs without changing terminal status
+                (existing().status == 'ปิดงาน' &&
+                  incoming().status == 'ปิดงาน' &&
+                  incoming().diff(existing()).affectedKeys().hasOnly([
+                    'actualCost', 'warrantyDays', 'warrantyStartDate', 'warrantyEndDate', 'notes', 'updatedAt'
+                  ])) ||
+                // Action: Edit/progress non-closed jobs
+                (existing().status != 'ปิดงาน' &&
+                  incoming().diff(existing()).affectedKeys().hasOnly([
+                    'queueNumber', 'loggedDate', 'product', 'productCategory',
+                    'jobDetails', 'symptoms', 'customerName', 'customerPhone', 'customerLineId',
+                    'customerFacebook', 'customerAddress', 'customerMapCoordinates',
+                    'appointmentDate', 'appointmentTime', 'estimatedCost', 'actualCost',
+                    'status', 'warrantyDays', 'warrantyStartDate', 'warrantyEndDate',
+                    'assignedUserId', 'assignedUserName', 'closedAt', 'cancelReason', 'notes',
+                    'updatedAt'
+                  ]))
+              )
+            )
+          );
+
+        allow delete: if isValidId(workspaceId) && isValidId(jobId) && (isWorkspaceOwner(workspaceId) || isAdmin());
+      }
+
+      match /media/{mediaId} {
+        allow get: if isValidId(workspaceId) && isValidId(mediaId) && canAccessWorkspace(workspaceId);
+        allow list: if isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+        allow create: if isValidId(workspaceId) && isValidId(mediaId)
+          && canAccessWorkspace(workspaceId)
+          && isValidJobMediaDoc(incoming(), mediaId)
+          && incoming().ownerUid == request.auth.uid
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/jobs/$(incoming().jobId))
+          && hasCreatedTimestamps(incoming());
+        allow update: if isValidId(workspaceId) && isValidId(mediaId)
+          && canAccessWorkspace(workspaceId)
+          && isValidJobMediaDoc(incoming(), mediaId)
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().jobId == existing().jobId
+          && incoming().diff(existing()).affectedKeys().hasOnly(['note', 'jobStatus', 'updatedAt']);
+        allow delete: if isValidId(workspaceId) && isValidId(mediaId) && canAccessWorkspace(workspaceId);
+      }
+
+      match /accounts/{accountId} {
+        allow get: if isValidId(workspaceId) && isValidId(accountId) && isAdmin();
+        allow list: if isBootstrappedAdmin();
+        allow create: if isValidId(workspaceId) && isValidId(accountId)
+          && isAdmin()
+          && isValidUserAccountDoc(incoming(), accountId)
+          && incoming().ownerUid == request.auth.uid
+          && hasCreatedTimestamps(incoming());
+        allow update: if isValidId(workspaceId) && isValidId(accountId)
+          && isAdmin()
+          && isValidUserAccountDoc(incoming(), accountId)
+          && hasUpdatedTimestamps(incoming(), existing())
+          && incoming().id == existing().id
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'phone', 'username', 'password', 'role',
+            'linkToken', 'userLink', 'expiresAt', 'renewalCode', 'renewalCodesSummary',
+            'notes', 'updatedAt'
+          ]);
+        allow delete: if isValidId(workspaceId) && isValidId(accountId) && isAdmin();
+      }
+    }
+  }
+}

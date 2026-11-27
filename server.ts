@@ -567,11 +567,133 @@ async function startServer() {
     }
   });
 
-  // Health check endpoint
+  // Google Maps API key fallback config endpoint (for runtime-injected env vars)
+  app.get('/api/maps/config', (_req, res) => {
+    const apiKey = (
+      process.env.VITE_GOOGLE_MAPS_API_KEY ||
+      process.env.GOOGLE_MAPS_API_KEY ||
+      ''
+    ).trim();
+    return res.json({ apiKey });
+  });
+
+  // Server-side Google Maps Geocoding API v4 Proxy (avoids CORS trap CF1)
+  app.post('/api/geocode', async (req, res) => {
+    try {
+      const rawAddress = typeof req.body?.address === 'string' ? req.body.address.trim() : '';
+      if (!rawAddress || rawAddress.length > 500) {
+        return res.status(400).json({
+          found: false,
+          error: { status: 'INVALID_ARGUMENT', message: 'Valid address string is required.' },
+        });
+      }
+
+      const apiKey = (
+        process.env.GOOGLE_MAPS_API_KEY ||
+        process.env.VITE_GOOGLE_MAPS_API_KEY ||
+        ''
+      ).trim();
+
+      if (!apiKey) {
+        return res.status(503).json({
+          found: false,
+          error: { status: 'API_KEY_MISSING', message: 'Google Maps API key is not configured on server.' },
+        });
+      }
+
+      const v4Url = `https://geocode.googleapis.com/v4/geocode/address/${encodeURIComponent(rawAddress)}?regionCode=TH&languageCode=th`;
+      const v4Resp = await fetch(v4Url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'results.placeId,results.location,results.formattedAddress,results.granularity',
+          'X-Goog-Maps-Solution-ID': 'gmp_mcp_codeassist_v1_aistudio',
+        },
+      });
+
+      const v4Data = await v4Resp.json().catch(() => null);
+
+      if (v4Resp.status === 429 || v4Data?.error?.status === 'RESOURCE_EXHAUSTED') {
+        return res.status(429).json({
+          found: false,
+          error: { status: 'RESOURCE_EXHAUSTED', message: v4Data?.error?.message || 'Geocoding quota exceeded' },
+        });
+      }
+
+      if (v4Resp.ok) {
+        const first = v4Data?.results?.[0];
+        const lat = first?.location?.latitude;
+        const lng = first?.location?.longitude;
+        if (typeof lat === 'number' && typeof lng === 'number') {
+          return res.json({
+            found: true,
+            lat,
+            lng,
+            placeId: first.placeId || '',
+            formattedAddress: first.formattedAddress || rawAddress,
+            granularity: first.granularity || '',
+          });
+        }
+        return res.json({ found: false, results: [] });
+      }
+
+      const classicUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(rawAddress)}&region=th&language=th&key=${encodeURIComponent(apiKey)}`;
+      const classicResp = await fetch(classicUrl, { method: 'GET' });
+      const classicData = await classicResp.json().catch(() => null);
+
+      if (classicResp.status === 429 || classicData?.status === 'OVER_QUERY_LIMIT') {
+        return res.status(429).json({
+          found: false,
+          error: { status: 'RESOURCE_EXHAUSTED', message: classicData?.error_message || 'Geocoding quota exceeded' },
+        });
+      }
+
+      if (classicData?.status === 'OK' && classicData?.results?.[0]?.geometry?.location) {
+        const top = classicData.results[0];
+        return res.json({
+          found: true,
+          lat: top.geometry.location.lat,
+          lng: top.geometry.location.lng,
+          placeId: top.place_id || '',
+          formattedAddress: top.formatted_address || rawAddress,
+          granularity: top.geometry.location_type || '',
+        });
+      }
+
+      if (classicData?.status === 'ZERO_RESULTS') {
+        return res.json({ found: false, results: [] });
+      }
+
+      return res.status(classicResp.ok ? 200 : classicResp.status).json({
+        found: false,
+        error: {
+          status: classicData?.status || 'GEOCODE_ERROR',
+          message: classicData?.error_message || v4Data?.error?.message || 'Unable to geocode address',
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        found: false,
+        error: { status: 'INTERNAL_ERROR', message: err?.message || 'Server error while geocoding address' },
+      });
+    }
+  });
+
+  // Health check endpoint (also returns live workspace package.json version for freshness verification)
   app.get('/api/health', (_req, res) => {
+    let liveVersion = '';
+    try {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')
+      );
+      if (pkg?.version) liveVersion = String(pkg.version);
+    } catch {}
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.json({
       status: 'ok',
       service: 'MyQueue Onsite Service LINE Messaging API',
+      version: liveVersion || undefined,
       timestamp: new Date().toISOString(),
     });
   });
@@ -581,6 +703,7 @@ async function startServer() {
     try {
       const zip = new JSZip();
       const workspaceRoot = __dirname;
+      const storeExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.mp4', '.woff2']);
 
       const addDirToZip = (currentDir: string) => {
         if (!fs.existsSync(currentDir)) return;
@@ -592,17 +715,21 @@ async function startServer() {
             item === '.git' ||
             item === '.cache' ||
             item === '.npm' ||
+            item === '.gmp_cache' ||
             item === 'aistudio'
           ) {
             continue;
           }
           const fullPath = path.join(currentDir, item);
-          const relPath = path.relative(workspaceRoot, fullPath);
+          const relPath = path.relative(workspaceRoot, fullPath).replace(/\\/g, '/');
           const stat = fs.statSync(fullPath);
           if (stat.isDirectory()) {
             addDirToZip(fullPath);
           } else {
-            zip.file(relPath, fs.readFileSync(fullPath));
+            const ext = path.extname(item).toLowerCase();
+            zip.file(relPath, fs.readFileSync(fullPath), {
+              compression: storeExts.has(ext) ? 'STORE' : 'DEFLATE',
+            });
           }
         }
       };
@@ -619,6 +746,7 @@ async function startServer() {
         'index.html',
         'README.md',
         'metadata.json',
+        '.env.example',
         '.npmrc',
         '.gitignore',
         'vercel.json',
@@ -627,9 +755,15 @@ async function startServer() {
       for (const rf of rootFiles) {
         const fp = path.join(workspaceRoot, rf);
         if (fs.existsSync(fp)) {
-          zip.file(rf, fs.readFileSync(fp));
+          zip.file(rf, fs.readFileSync(fp), { compression: 'DEFLATE' });
         }
       }
+
+      let pkgVersion = 'latest';
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(workspaceRoot, 'package.json'), 'utf-8'));
+        if (pkg?.version) pkgVersion = String(pkg.version);
+      } catch {}
 
       const zipBuffer = await zip.generateAsync({
         type: 'nodebuffer',
@@ -638,9 +772,12 @@ async function startServer() {
       });
 
       res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Content-Length');
       res.setHeader(
         'Content-Disposition',
-        'attachment; filename="onsite-repair-service-source-code.zip"'
+        `attachment; filename="onsite-repair-service-v${pkgVersion}-source-code.zip"`
       );
       res.setHeader('Content-Length', zipBuffer.length);
       return res.end(zipBuffer);
@@ -653,17 +790,121 @@ async function startServer() {
     }
   });
 
+  // Always serve Service Worker files with valid JavaScript MIME type & no-store cache headers
+  // Prevents Chrome from rejecting /sw.js updates with "unsupported MIME type (text/html)" in Vite dev mode
+  const noStoreHeaders = (res: express.Response) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  };
+
+  app.get('/sw.js', (_req, res) => {
+    noStoreHeaders(res);
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    const distSwPath = path.resolve(__dirname, 'dist', 'sw.js');
+    if (fs.existsSync(distSwPath)) {
+      return res.sendFile(distSwPath);
+    }
+
+    let pkgVer = '1.5.8';
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+      if (pkg?.version) pkgVer = String(pkg.version);
+    } catch {}
+
+    // Dev-mode self-healing Service Worker: replaces any stale SW (e.g. v1.5.2), purges old caches, and reloads clients
+    const devSelfHealingSw = `
+// Self-healing Dev Service Worker (${pkgVer})
+try { importScripts('/alarm-sw.js'); } catch (e) {}
+const DEV_MARKER_CACHE = 'myqueue-sw-marker-v${pkgVer}';
+self.addEventListener('install', () => { self.skipWaiting(); });
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    const hadOldCaches = keys.some((k) => k !== DEV_MARKER_CACHE);
+    await Promise.all(keys.filter((k) => k !== DEV_MARKER_CACHE).map((k) => caches.delete(k)));
+    if (!(await caches.has(DEV_MARKER_CACHE))) {
+      const c = await caches.open(DEV_MARKER_CACHE);
+      await c.put(new Request('/__sw_version_marker__'), new Response('${pkgVer}'));
+    }
+    await self.clients.claim();
+    if (hadOldCaches) {
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of clients) {
+        try {
+          client.postMessage({ type: 'SW_UPDATED_RELOAD', version: '${pkgVer}' });
+          if ('navigate' in client) await client.navigate(client.url);
+        } catch {}
+      }
+    }
+  })());
+});
+`;
+    return res.send(devSelfHealingSw);
+  });
+
+  app.get('/alarm-sw.js', (_req, res, next) => {
+    noStoreHeaders(res);
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    const distAlarmSw = path.resolve(__dirname, 'dist', 'alarm-sw.js');
+    const publicAlarmSw = path.resolve(__dirname, 'public', 'alarm-sw.js');
+    if (fs.existsSync(distAlarmSw)) return res.sendFile(distAlarmSw);
+    if (fs.existsSync(publicAlarmSw)) return res.sendFile(publicAlarmSw);
+    return next();
+  });
+
+  app.get(['/registerSW.js', '/manifest.webmanifest'], (req, res, next) => {
+    noStoreHeaders(res);
+    const distAsset = path.resolve(__dirname, 'dist', req.path.replace(/^\/+/, ''));
+    if (fs.existsSync(distAsset)) {
+      if (req.path.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      } else if (req.path.endsWith('.webmanifest')) {
+        res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+      }
+      return res.sendFile(distAsset);
+    }
+    if (req.path === '/registerSW.js') {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      return res.send(
+        `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});});}`
+      );
+    }
+    return next();
+  });
+
   // In production serve dist build; in development use Vite middlewares
   const isProduction =
     process.env.NODE_ENV === 'production' ||
     fs.existsSync(path.resolve(__dirname, 'dist'));
 
   if (isProduction) {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.use(
+      express.static(path.resolve(__dirname, 'dist'), {
+        setHeaders: (res, filePath) => {
+          if (
+            filePath.endsWith('index.html') ||
+            filePath.endsWith('sw.js') ||
+            filePath.endsWith('alarm-sw.js') ||
+            filePath.endsWith('registerSW.js') ||
+            filePath.endsWith('manifest.webmanifest')
+          ) {
+            noStoreHeaders(res);
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      noStoreHeaders(res);
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   } else {
+    app.use((req, res, next) => {
+      if (req.path === '/' || req.path === '/index.html') {
+        noStoreHeaders(res);
+      }
+      next();
+    });
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
