@@ -1,0 +1,723 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Non-PII cloud user profile binding Firebase UID to User ID and active workspace.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Authentication UID"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the technician or admin"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "user"],
+          "description": "Account role"
+        },
+        "activeWorkspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Active cloud workspace ID"
+        },
+        "linkedUserId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Bound legacy/technician User ID"
+        },
+        "linkedUsername": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Bound technician login username"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["uid", "displayName", "role", "activeWorkspaceId", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document for user email and phone number.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Trusted admin marker document keyed by Firebase UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Persistent cloud database workspace bound to owner UID and/or User ID.",
+      "type": "object",
+      "properties": {
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["admin_master", "user_workspace"]
+        },
+        "boundUserId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "boundUsername": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["workspaceId", "ownerUid", "kind", "label", "createdAt", "updatedAt"]
+    },
+    "WorkspaceMember": {
+      "title": "WorkspaceMember",
+      "description": "Authorized member of a workspace.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "editor"]
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "ownerUid", "role", "displayName", "createdAt", "updatedAt"]
+    },
+    "ShopSettingsDoc": {
+      "title": "ShopSettingsDoc",
+      "description": "Persistent shop settings, cover appearance, repair categories, technicians, and non-secret LINE preferences.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "lineId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "lineUrl": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "facebook": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "facebookUrl": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "coverImage": {
+          "type": "string",
+          "maxLength": 350000
+        },
+        "coverTitle": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "coverSubtitle": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "repairCategories": {
+          "type": "array",
+          "description": "Custom repair categories (max 50 items)"
+        },
+        "technicians": {
+          "type": "array",
+          "description": "Custom technicians list (max 50 items)"
+        },
+        "lineEnabled": {
+          "type": "boolean"
+        },
+        "lineProvider": {
+          "type": "string",
+          "enum": ["messaging_api", "line_notify"]
+        },
+        "lineSendMode": {
+          "type": "string",
+          "enum": ["push", "broadcast"]
+        },
+        "notifyOnNewJob": {
+          "type": "boolean"
+        },
+        "notifyOnStatusChange": {
+          "type": "boolean"
+        },
+        "notifyBefore30Min": {
+          "type": "boolean"
+        },
+        "repeatIntervalMinutes": {
+          "type": "number"
+        },
+        "includeCustomerPhone": {
+          "type": "boolean"
+        },
+        "includeMapLink": {
+          "type": "boolean"
+        },
+        "smsEnabled": {
+          "type": "boolean"
+        },
+        "smsProvider": {
+          "type": "string",
+          "enum": ["device_sms", "thaibulksms", "twilio", "webhook"]
+        },
+        "smsOnlyWhenNoCustomerLine": {
+          "type": "boolean"
+        },
+        "smsAutoSendOnCreate": {
+          "type": "boolean"
+        },
+        "smsAutoSendOnStatusChange": {
+          "type": "boolean"
+        },
+        "smsSenderName": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "smsNotifyOnNewJob": {
+          "type": "boolean"
+        },
+        "smsNotifyOnStatusChange": {
+          "type": "boolean"
+        },
+        "smsNotifyOnReschedule": {
+          "type": "boolean"
+        },
+        "smsIncludeShopPhone": {
+          "type": "boolean"
+        },
+        "smsIncludeMapLink": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerUid", "shopName", "coverTitle", "repairCategories", "technicians", "createdAt", "updatedAt"]
+    },
+    "WorkspaceSecretsDoc": {
+      "title": "WorkspaceSecretsDoc",
+      "description": "Isolated sensitive admin tokens, LINE Messaging API credentials, and SMS gateway secrets.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "adminPassword": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "adminSecretToken": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "lineToken": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "lineChannelAccessToken": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "lineChannelSecret": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "lineTargetId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "smsApiKey": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "smsApiSecret": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "smsWebhookUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerUid", "createdAt", "updatedAt"]
+    },
+    "RepairJobDoc": {
+      "title": "RepairJobDoc",
+      "description": "Persistent repair queue item with customer info, schedule, cost, warranty, and status.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "queueNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "loggedDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "productCategory": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "jobDetails": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "symptoms": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "customerPhone": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "customerLineId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "customerFacebook": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "customerAddress": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "customerMapCoordinates": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "appointmentDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "appointmentTime": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "estimatedCost": {
+          "type": "number"
+        },
+        "actualCost": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["รับงาน", "กำลังไป", "กำลังซ่อม", "ซ่อมแล้ว", "ปิดงาน", "นัดหมายต่อ", "ยกเลิก"]
+        },
+        "warrantyDays": {
+          "type": "number"
+        },
+        "warrantyStartDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "warrantyEndDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "assignedUserId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "assignedUserName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "closedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "cancelReason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "queueNumber",
+        "loggedDate",
+        "product",
+        "customerName",
+        "status",
+        "estimatedCost",
+        "warrantyDays",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "JobMediaDoc": {
+      "title": "JobMediaDoc",
+      "description": "Compressed image or video poster attached to a repair job status (split for 1MB Firestore safety).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "jobId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "jobStatus": {
+          "type": "string",
+          "enum": ["รับงาน", "กำลังไป", "กำลังซ่อม", "ซ่อมแล้ว", "ปิดงาน", "นัดหมายต่อ", "ยกเลิก"]
+        },
+        "mediaType": {
+          "type": "string",
+          "enum": ["image", "video"]
+        },
+        "dataUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 450000
+        },
+        "thumbnailDataUrl": {
+          "type": "string",
+          "maxLength": 200000
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "mimeType": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "sizeBytes": {
+          "type": "number"
+        },
+        "durationSec": {
+          "type": "number"
+        },
+        "itemCreatedAt": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerUid", "jobId", "jobStatus", "mediaType", "dataUrl", "createdAt", "updatedAt"]
+    },
+    "UserAccountDoc": {
+      "title": "UserAccountDoc",
+      "description": "Admin-managed technician User ID account with expiry and renewal tracking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "password": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "user"]
+        },
+        "linkToken": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "userLink": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "expiresAt": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "renewalCode": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "renewalCodesSummary": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "accountCreatedAt": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerUid", "name", "username", "role", "linkToken", "expiresAt", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Cloud profile mapping Firebase UID to User ID and active workspace."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII document storing user email and phone."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Trusted admin role marker documents."
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Root workspace metadata document for Admin Master or User Workspace."
+    },
+    "/workspaces/{workspaceId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/WorkspaceMember" },
+      "description": "Workspace member access subcollection."
+    },
+    "/workspaces/{workspaceId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/ShopSettingsDoc" },
+      "description": "Shop settings, cover image/title/subtitle, repair categories, and technicians."
+    },
+    "/workspaces/{workspaceId}/private/{secretId}": {
+      "schema": { "$ref": "#/entities/WorkspaceSecretsDoc" },
+      "description": "Isolated secrets document for Admin password/secret token and LINE Messaging API credentials."
+    },
+    "/workspaces/{workspaceId}/jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/RepairJobDoc" },
+      "description": "Repair job queue records."
+    },
+    "/workspaces/{workspaceId}/media/{mediaId}": {
+      "schema": { "$ref": "#/entities/JobMediaDoc" },
+      "description": "Status photos & video poster thumbnails attached to repair jobs."
+    },
+    "/workspaces/{workspaceId}/accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/UserAccountDoc" },
+      "description": "Admin-managed technician User IDs and user link records."
+    }
+  }
+}

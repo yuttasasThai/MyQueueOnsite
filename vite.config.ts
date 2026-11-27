@@ -52,7 +52,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          cacheId: 'myqueue-onsite-v159',
+          cacheId: 'myqueue-onsite-v160',
           importScripts: ['/alarm-sw.js'],
           skipWaiting: true,
           clientsClaim: true,

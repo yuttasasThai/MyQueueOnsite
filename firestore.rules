@@ -139,6 +139,9 @@ service cloud.firestore {
           'address', 'coverImage', 'coverTitle', 'coverSubtitle', 'repairCategories', 'technicians',
           'lineEnabled', 'lineProvider', 'lineSendMode', 'notifyOnNewJob', 'notifyOnStatusChange',
           'notifyBefore30Min', 'repeatIntervalMinutes', 'includeCustomerPhone', 'includeMapLink',
+          'smsEnabled', 'smsProvider', 'smsOnlyWhenNoCustomerLine', 'smsAutoSendOnCreate',
+          'smsAutoSendOnStatusChange', 'smsSenderName', 'smsNotifyOnNewJob', 'smsNotifyOnStatusChange',
+          'smsNotifyOnReschedule', 'smsIncludeShopPhone', 'smsIncludeMapLink',
           'createdAt', 'updatedAt'
         ])
         && isValidId(data.ownerUid)
@@ -165,6 +168,17 @@ service cloud.firestore {
         && isOptNumber(data, 'repeatIntervalMinutes')
         && isOptBool(data, 'includeCustomerPhone')
         && isOptBool(data, 'includeMapLink')
+        && isOptBool(data, 'smsEnabled')
+        && (!('smsProvider' in data) || data.smsProvider in ['device_sms', 'thaibulksms', 'twilio', 'webhook'])
+        && isOptBool(data, 'smsOnlyWhenNoCustomerLine')
+        && isOptBool(data, 'smsAutoSendOnCreate')
+        && isOptBool(data, 'smsAutoSendOnStatusChange')
+        && isOptString(data, 'smsSenderName', 60)
+        && isOptBool(data, 'smsNotifyOnNewJob')
+        && isOptBool(data, 'smsNotifyOnStatusChange')
+        && isOptBool(data, 'smsNotifyOnReschedule')
+        && isOptBool(data, 'smsIncludeShopPhone')
+        && isOptBool(data, 'smsIncludeMapLink')
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -174,6 +188,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'ownerUid', 'adminPassword', 'adminSecretToken',
           'lineToken', 'lineChannelAccessToken', 'lineChannelSecret', 'lineTargetId',
+          'smsApiKey', 'smsApiSecret', 'smsWebhookUrl',
           'createdAt', 'updatedAt'
         ])
         && isValidId(data.ownerUid)
@@ -183,6 +198,9 @@ service cloud.firestore {
         && isOptString(data, 'lineChannelAccessToken', 500)
         && isOptString(data, 'lineChannelSecret', 200)
         && isOptString(data, 'lineTargetId', 120)
+        && isOptString(data, 'smsApiKey', 300)
+        && isOptString(data, 'smsApiSecret', 300)
+        && isOptString(data, 'smsWebhookUrl', 500)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -420,6 +438,9 @@ service cloud.firestore {
               'address', 'coverImage', 'coverTitle', 'coverSubtitle', 'repairCategories', 'technicians',
               'lineEnabled', 'lineProvider', 'lineSendMode', 'notifyOnNewJob', 'notifyOnStatusChange',
               'notifyBefore30Min', 'repeatIntervalMinutes', 'includeCustomerPhone', 'includeMapLink',
+              'smsEnabled', 'smsProvider', 'smsOnlyWhenNoCustomerLine', 'smsAutoSendOnCreate',
+              'smsAutoSendOnStatusChange', 'smsSenderName', 'smsNotifyOnNewJob', 'smsNotifyOnStatusChange',
+              'smsNotifyOnReschedule', 'smsIncludeShopPhone', 'smsIncludeMapLink',
               'updatedAt'
             ])
           );
@@ -442,6 +463,7 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'adminPassword', 'adminSecretToken',
             'lineToken', 'lineChannelAccessToken', 'lineChannelSecret', 'lineTargetId',
+            'smsApiKey', 'smsApiSecret', 'smsWebhookUrl',
             'updatedAt'
           ]);
         allow delete: if isValidId(workspaceId) && isValidId(secretId) && (isWorkspaceOwner(workspaceId) || isAdmin());
