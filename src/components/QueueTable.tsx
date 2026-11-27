@@ -22,10 +22,18 @@ import {
   Camera,
   Award,
   Ban,
+  MessageSquare,
 } from 'lucide-react';
-import { RepairJob, RepairStatus } from '../types';
+import { RepairJob, RepairStatus, ShopSettings } from '../types';
+import { INITIAL_SHOP_SETTINGS } from '../data/initialData';
 import { getWarrantyStatus } from '../services/storage';
 import { getTotalJobPhotosCount } from '../services/imageUtils';
+import { addNotificationLog } from '../services/lineNotify';
+import {
+  buildDeviceSmsUri,
+  cleanSmsPhone,
+  formatCustomerStatusSms,
+} from '../services/smsNotify';
 import { StatusStepperIcons, getNextForwardStatus } from './StatusStepperIcons';
 import {
   EditStatusModal,
@@ -47,6 +55,7 @@ interface QueueTableProps {
   currentUserId?: string;
   initialStatusFilter?: string;
   initialSheet?: 'all' | 'closed';
+  settings?: ShopSettings;
 }
 
 const ALL_STATUSES: RepairStatus[] = [
@@ -72,6 +81,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
   currentUserId,
   initialStatusFilter = 'all',
   initialSheet = 'all',
+  settings = INITIAL_SHOP_SETTINGS,
 }) => {
   const [activeSheet, setActiveSheet] = useState<'all' | 'closed'>(initialSheet);
   const [searchTerm, setSearchTerm] = useState('');
@@ -675,6 +685,39 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         <MessageCircle className="w-4 h-4" />
                       </a>
                     )}
+                    {cleanSmsPhone(job.customer.phone) && (
+                      <a
+                        href={buildDeviceSmsUri(
+                          job.customer.phone,
+                          formatCustomerStatusSms(job, job.status, settings)
+                        )}
+                        onClick={() =>
+                          addNotificationLog({
+                            channel: 'sms',
+                            recipientPhone: job.customer.phone,
+                            type: 'sms_customer',
+                            jobQueueNumber: job.queueNumber,
+                            jobProduct: job.product,
+                            status: job.status,
+                            success: true,
+                            message: `เปิดแอป SMS แจ้งคิว ${job.queueNumber} ถึง ${job.customer.phone}`,
+                            responseMessage: 'Quick SMS from Mobile Card',
+                          })
+                        }
+                        className={`min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg transition-colors ${
+                          !job.customer.lineId
+                            ? 'bg-sky-100 hover:bg-sky-200 text-sky-700'
+                            : 'bg-slate-100 hover:bg-sky-100 text-sky-600'
+                        }`}
+                        title={
+                          !job.customer.lineId
+                            ? `ส่ง SMS แจ้งคิวงาน (ลูกค้าไม่มี LINE): ${job.customer.phone}`
+                            : `ส่ง SMS: ${job.customer.phone}`
+                        }
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </a>
+                    )}
                     <a
                       href={getMapsUrl(job.customer.address, job.customer.mapCoordinates)}
                       target="_blank"
@@ -1040,6 +1083,41 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                               title={`LINE: ${job.customer.lineId}`}
                             >
                               <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            </a>
+                          )}
+
+                          {/* SMS */}
+                          {cleanSmsPhone(job.customer.phone) && (
+                            <a
+                              href={buildDeviceSmsUri(
+                                job.customer.phone,
+                                formatCustomerStatusSms(job, job.status, settings)
+                              )}
+                              onClick={() =>
+                                addNotificationLog({
+                                  channel: 'sms',
+                                  recipientPhone: job.customer.phone,
+                                  type: 'sms_customer',
+                                  jobQueueNumber: job.queueNumber,
+                                  jobProduct: job.product,
+                                  status: job.status,
+                                  success: true,
+                                  message: `เปิดแอป SMS แจ้งคิว ${job.queueNumber} ถึง ${job.customer.phone}`,
+                                  responseMessage: 'Quick SMS from Queue Table',
+                                })
+                              }
+                              className={`p-1.5 rounded-md transition-colors ${
+                                !job.customer.lineId
+                                  ? 'bg-sky-100 hover:bg-sky-200 text-sky-700'
+                                  : 'bg-slate-100 hover:bg-sky-100 text-sky-600'
+                              }`}
+                              title={
+                                !job.customer.lineId
+                                  ? `ส่ง SMS แจ้งคิวงาน (ลูกค้าไม่มี LINE): ${job.customer.phone}`
+                                  : `ส่ง SMS: ${job.customer.phone}`
+                              }
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
                             </a>
                           )}
 

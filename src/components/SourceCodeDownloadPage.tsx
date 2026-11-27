@@ -825,24 +825,27 @@ export const SourceCodeDownloadPage: React.FC<SourceCodeDownloadPageProps> = ({
       </div>
 
       {/* GitHub + Vercel Deploy Instructions */}
-      <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 sm:p-5 text-xs text-blue-950 space-y-2">
+      <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 sm:p-5 text-xs text-blue-950 space-y-2.5">
         <div className="font-bold text-blue-900 flex items-center gap-1.5 text-sm">
           <Terminal className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>ขั้นตอนอัปโหลดขึ้น GitHub ให้ Vercel อัปเดตเป็น v{APP_VERSION} อย่างถูกต้อง:</span>
+          <span>ขั้นตอนอัปโหลดขึ้น GitHub ให้ Vercel อัปเดตเป็น v{APP_VERSION} อย่างถูกต้อง (แก้ปัญหาลิงก์ยังค้าง v1.5.1):</span>
         </div>
-        <ol className="list-decimal list-inside space-y-1 text-blue-900/90 leading-relaxed">
+        <ol className="list-decimal list-inside space-y-1.5 text-blue-900/90 leading-relaxed">
           <li>
-            กดปุ่ม <strong>ดาวน์โหลด Full ZIP (v{APP_VERSION})</strong> ด้านบน (หรือ Code Lite ZIP หากอัปเดตเฉพาะโค้ดลง Repo เดิมที่มีรูปอยู่แล้ว)
+            กดปุ่ม <strong>ดาวน์โหลด Full ZIP (v{APP_VERSION})</strong> ด้านบน แล้วแตกไฟล์ <code className="bg-white px-1 rounded">.zip</code> ออกมา
           </li>
           <li>
-            แตกไฟล์ <code className="bg-white px-1 rounded">.zip</code> ออกมา แล้วนำไฟล์ทั้งหมดข้างใน (
-            <code className="bg-white px-1 rounded">src</code>, <code className="bg-white px-1 rounded">api</code>,{' '}
-            <code className="bg-white px-1 rounded">public</code>, <code className="bg-white px-1 rounded">package.json</code>,{' '}
-            <code className="bg-white px-1 rounded">vercel.json</code>, <code className="bg-white px-1 rounded">vite.config.ts</code>)
-            วางทับที่โฟลเดอร์หลัก (Root) ของ GitHub Repository (อย่าซ้อนไว้ในโฟลเดอร์ย่อย)
+            เปิดเข้าไป <strong>ข้างในโฟลเดอร์ที่แตกออกมา</strong> แล้วนำไฟล์และโฟลเดอร์ทั้งหมดข้างใน (
+            <code className="bg-white px-1 rounded">src/</code>, <code className="bg-white px-1 rounded">api/</code>,{' '}
+            <code className="bg-white px-1 rounded">public/</code>, <code className="bg-white px-1 rounded">package.json</code>,{' '}
+            <code className="bg-white px-1 rounded">vercel.json</code>, <code className="bg-white px-1 rounded">firebase-applet-config.json</code>,{' '}
+            <code className="bg-white px-1 rounded">.npmrc</code>) วางทับที่หน้าแรกสุด (<strong>Root</strong>) ของ GitHub Repo — <strong>ห้าม</strong>วางทั้งโฟลเดอร์ซ้อนลงไป
           </li>
           <li>
-            รอ Vercel Build จนขึ้นสถานะ <strong>Ready</strong> แล้วเปิดเว็บใหม่ (ระบบได้ปลดแคช <code className="bg-white px-1 rounded">index.html</code> แล้ว จะเห็นเวอร์ชัน v{APP_VERSION} ทันที)
+            ตรวจสอบในหน้าเว็บ <strong>Vercel Dashboard → Deployments</strong> ว่าบิลด์ล่าสุดขึ้นสถานะ <strong className="text-emerald-700">Ready</strong> (สีเขียว) ไม่ใช่ Error (หาก Error ให้กดเข้าไปดู Log เพราะถ้า Build พลาด Vercel จะยังเปิดใช้ตัวเก่า v1.5.1 ค้างไว้)
+          </li>
+          <li>
+            ทดสอบเปิด <code className="bg-white px-1 rounded">https://ลิงก์เว็บของคุณ/api/health</code> — หากขึ้นเป็น <code className="bg-white px-1 rounded">"version":"{APP_VERSION}"</code> แต่หน้าหลักยังเป็นเวอร์ชันเก่า แสดงว่าเบราว์เซอร์จำแคช Service Worker ของ 1.5.1 อยู่ ให้เปิดในโหมดไม่ระบุตัวตน (Incognito) หรือล้าง Site Data ใน Chrome และลบไอคอนเก่าบนหน้าจอมือถือแล้วติดตั้งใหม่
           </li>
         </ol>
       </div>

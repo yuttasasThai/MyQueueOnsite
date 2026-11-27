@@ -32,8 +32,16 @@ import {
   CloudOff,
   LogOut,
   ShieldCheck,
+  MessageSquare,
 } from 'lucide-react';
-import { ShopSettings, NotificationLog, RepairJob, LineNotifySettings } from '../types';
+import {
+  ShopSettings,
+  NotificationLog,
+  RepairJob,
+  LineNotifySettings,
+  SmsNotifySettings,
+  SmsProvider,
+} from '../types';
 import { COVER_PRESETS, resolveCoverImage } from '../data/initialData';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
@@ -48,6 +56,12 @@ import {
   clearNotificationLogs,
   getLineShareUrl,
 } from '../services/lineNotify';
+import {
+  resolveSmsSettings,
+  isSmsGatewayConfigured,
+  formatTestSms,
+  sendSmsNotification,
+} from '../services/smsNotify';
 import type { CloudSessionContext } from '../services/cloudSync';
 
 interface AdminSettingsProps {
@@ -77,7 +91,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
   onForceCloudBackup,
   onCloudSignOut,
 }) => {
-  const [subTab, setSubTab] = useState<'shop' | 'line_notify'>('shop');
+  const [subTab, setSubTab] = useState<'shop' | 'line_notify' | 'sms_notify'>('shop');
 
   const defaultLineCfg = (prev?: Partial<LineNotifySettings>): LineNotifySettings => ({
     enabled: true,
@@ -95,11 +109,15 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     ...prev,
   });
 
+  const defaultSmsCfg = (prev?: Partial<SmsNotifySettings>): SmsNotifySettings =>
+    resolveSmsSettings(prev);
+
   // Shop Settings Form State (สำหรับ User ไม่แสดงค่าเดิมของร้าน/หน้าปกที่ค้างไว้)
   const sanitizeForRole = (s: ShopSettings): ShopSettings => {
     const base = {
       ...s,
       lineNotify: defaultLineCfg(s.lineNotify),
+      smsNotify: defaultSmsCfg(s.smsNotify),
       repairCategories: Array.isArray(s.repairCategories) ? s.repairCategories : [],
       technicians: Array.isArray(s.technicians) ? s.technicians : [],
     };
@@ -185,6 +203,17 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
   );
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
+  // SMS Customer Notification Testing State
+  const [testSmsPhone, setTestSmsPhone] = useState<string>(() => settings.phone || '');
+  const [testSmsCustomMsg, setTestSmsCustomMsg] = useState<string>('');
+  const [isTestingSms, setIsTestingSms] = useState(false);
+  const [showSmsSecret, setShowSmsSecret] = useState(false);
+  const [smsTestResult, setSmsTestResult] = useState<{
+    success: boolean;
+    message: string;
+    timestamp: string;
+  } | null>(null);
+
   const loadCapturedTargets = async () => {
     setIsRefreshingTargets(true);
     const status = await fetchLineMessagingStatus();
@@ -243,6 +272,49 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     setIsTestingLine(false);
   };
 
+  // Handle Test SMS Dispatch
+  const handleTestSmsNotify = async () => {
+    const smsCfg = defaultSmsCfg(formData.smsNotify);
+    const targetPhone = testSmsPhone.trim();
+    if (!targetPhone || targetPhone.replace(/[^0-9]/g, '').length < 8) {
+      setSmsTestResult({
+        success: false,
+        message: 'กรุณากรอกเบอร์โทรศัพท์ปลายทางที่ถูกต้องสำหรับทดสอบส่ง SMS',
+        timestamp: new Date().toLocaleTimeString('th-TH'),
+      });
+      return;
+    }
+
+    if (smsCfg.provider !== 'device_sms' && !isSmsGatewayConfigured({ ...smsCfg, enabled: true })) {
+      setSmsTestResult({
+        success: false,
+        message: 'กรุณากรอกข้อมูล API / Webhook ของผู้ให้บริการ SMS ให้ครบก่อนกดทดสอบ',
+        timestamp: new Date().toLocaleTimeString('th-TH'),
+      });
+      return;
+    }
+
+    setIsTestingSms(true);
+    setSmsTestResult(null);
+
+    const sampleMsg = testSmsCustomMsg.trim() || formatTestSms(formData);
+    const res = await sendSmsNotification({
+      cfg: { ...smsCfg, enabled: true },
+      toPhone: targetPhone,
+      message: sampleMsg,
+      settings: formData,
+      eventType: 'manual_test',
+    });
+
+    setNotificationLogs(loadNotificationLogs());
+    setSmsTestResult({
+      success: res.success,
+      message: res.message,
+      timestamp: new Date().toLocaleTimeString('th-TH'),
+    });
+    setIsTestingSms(false);
+  };
+
   // Clear notification logs
   const handleClearLogs = () => {
     if (confirm('คุณต้องการลบประวัติการแจ้งเตือนทั้งหมดหรือไม่?')) {
@@ -296,10 +368,26 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                 : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
             }`}
           >
-            <BellRing className="w-4 h-4 text-emerald-400" />
+            <BellRing className={`w-4 h-4 ${subTab === 'line_notify' ? 'text-emerald-100' : 'text-emerald-500'}`} />
             <span>ตั้งค่า LINE Messaging API</span>
             {formData.lineNotify?.enabled && Boolean(activeLineToken) && (
               <span className="w-2 h-2 rounded-full bg-emerald-300"></span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('sms_notify')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
+              subTab === 'sms_notify'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <MessageSquare className={`w-4 h-4 ${subTab === 'sms_notify' ? 'text-sky-100' : 'text-sky-600'}`} />
+            <span>ตั้งค่า SMS แจ้งเตือนลูกค้า</span>
+            {formData.smsNotify?.enabled && (
+              <span className="w-2 h-2 rounded-full bg-sky-300"></span>
             )}
           </button>
         </div>
@@ -1463,21 +1551,744 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
                         key={log.id}
                         className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 text-xs space-y-1 hover:bg-slate-100/80 transition-colors"
                       >
-                        <div className="flex items-center justify-between">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              log.success
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {log.success ? (
-                              <CheckCircle className="w-3 h-3" />
-                            ) : (
-                              <AlertCircle className="w-3 h-3" />
-                            )}
-                            {log.success ? 'ส่งสำเร็จ' : 'ส่งไม่สำเร็จ'}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                log.channel === 'sms'
+                                  ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              }`}
+                            >
+                              {log.channel === 'sms' ? 'SMS' : 'LINE'}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                log.success
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {log.success ? (
+                                <CheckCircle className="w-3 h-3" />
+                              ) : (
+                                <AlertCircle className="w-3 h-3" />
+                              )}
+                              {log.success ? 'ส่งสำเร็จ' : 'ส่งไม่สำเร็จ'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {new Date(log.timestamp).toLocaleTimeString('th-TH', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
                           </span>
+                        </div>
+
+                        <div className="font-semibold text-slate-800 text-[11px] truncate">
+                          {log.message}
+                        </div>
+
+                        {log.responseMessage && (
+                          <div className="text-[10px] text-slate-500 truncate font-mono">
+                            {log.responseMessage}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: SMS CUSTOMER NOTIFICATION SETTINGS */}
+      {subTab === 'sms_notify' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-sky-600 to-blue-700 rounded-2xl p-6 text-white shadow-md relative overflow-hidden">
+            <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-44 h-44 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-xs text-xs font-semibold">
+                  <MessageSquare className="w-3.5 h-3.5 text-sky-200" />
+                  <span>แจ้งเตือนลูกค้ากรณีไม่ได้แอด LINE ร้าน — ส่งเข้าเบอร์โทรโดยตรง</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold">
+                  ส่ง SMS แจ้งเตือนคิวงานให้ลูกค้า (เสริมจาก LINE)
+                </h3>
+                <p className="text-sky-100 text-xs sm:text-sm max-w-2xl leading-relaxed">
+                  รองรับทั้งการ<strong>ส่งผ่านแอป SMS ในมือถือฟรีทันที (1 คลิก)</strong> และเชื่อมต่อ{' '}
+                  <strong>SMS Gateway อัตโนมัติ (ThaiBulkSMS / Twilio / Webhook)</strong> เพื่อแจ้งคิวรับงาน สถานะกำลังเดินทาง และปิดงานให้ลูกค้าที่ไม่มี LINE
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="bg-white/15 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/20 text-center">
+                  <div className="text-[11px] text-sky-100 font-medium">สถานะ SMS</div>
+                  <div className="text-sm font-bold flex items-center gap-1.5 justify-center mt-0.5">
+                    {!formData.smsNotify?.enabled ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
+                        <span>ปิดใช้งาน</span>
+                      </>
+                    ) : formData.smsNotify?.provider === 'device_sms' ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-300 animate-pulse"></span>
+                        <span>แอป SMS มือถือ (ฟรี)</span>
+                      </>
+                    ) : isSmsGatewayConfigured(formData.smsNotify) ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-300 animate-pulse"></span>
+                        <span>Gateway พร้อมส่งอัตโนมัติ</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-300"></span>
+                        <span>รอตั้งค่า API</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: SMS Configuration Form */}
+            <div className="lg:col-span-7 space-y-6">
+              <form
+                onSubmit={handleSaveShop}
+                className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-sky-600" />
+                    <span>ตั้งค่าช่องทางส่ง SMS แจ้งเตือนลูกค้า</span>
+                  </h4>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.smsNotify?.enabled ?? true}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          smsNotify: defaultSmsCfg({
+                            ...prev.smsNotify,
+                            enabled: e.target.checked,
+                          }),
+                        }))
+                      }
+                      className="w-4 h-4 text-sky-600 rounded border-slate-300 focus:ring-sky-500"
+                    />
+                    <span className="text-xs font-semibold text-slate-700">เปิดใช้งานส่ง SMS</span>
+                  </label>
+                </div>
+
+                {/* Provider Mode Selection */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-800 block">
+                    เลือกรูปแบบการส่ง SMS
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {(
+                      [
+                        {
+                          id: 'device_sms',
+                          title: 'แอป SMS ในมือถือ (ฟรี)',
+                          desc: 'กดส่ง 1 คลิก เปิดแอปข้อความในมือถือพร้อมข้อความลูกค้าทันที ไม่ต้องสมัคร API',
+                        },
+                        {
+                          id: 'thaibulksms',
+                          title: 'ThaiBulkSMS (อัตโนมัติ)',
+                          desc: 'ส่ง SMS เข้ามือถือลูกค้าในไทยอัตโนมัติทันทีด้วย API Key & Secret',
+                        },
+                        {
+                          id: 'twilio',
+                          title: 'Twilio SMS (อัตโนมัติ)',
+                          desc: 'ส่งอัตโนมัติผ่านบัญชี Twilio (Account SID + Auth Token)',
+                        },
+                        {
+                          id: 'webhook',
+                          title: 'Custom Webhook SMS',
+                          desc: 'ยิงข้อมูล JSON ไปยัง Webhook / n8n / Make ของร้านเอง',
+                        },
+                      ] as Array<{ id: SmsProvider; title: string; desc: string }>
+                    ).map((opt) => {
+                      const active = (formData.smsNotify?.provider || 'device_sms') === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              smsNotify: defaultSmsCfg({
+                                ...prev.smsNotify,
+                                provider: opt.id,
+                              }),
+                            }))
+                          }
+                          className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                            active
+                              ? 'border-sky-500 bg-sky-50/70 shadow-2xs'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`text-xs font-bold ${
+                                active ? 'text-sky-900' : 'text-slate-800'
+                              }`}
+                            >
+                              {opt.title}
+                            </span>
+                            {active && (
+                              <span className="w-2 h-2 rounded-full bg-sky-600 shrink-0"></span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                            {opt.desc}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Gateway Credentials (Only when provider !== device_sms) */}
+                {formData.smsNotify?.provider && formData.smsNotify.provider !== 'device_sms' && (
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                    <div className="text-xs font-bold text-slate-800">
+                      ข้อมูลเชื่อมต่อผู้ให้บริการ (
+                      {formData.smsNotify.provider === 'thaibulksms'
+                        ? 'ThaiBulkSMS'
+                        : formData.smsNotify.provider === 'twilio'
+                        ? 'Twilio'
+                        : 'Webhook URL'}
+                      )
+                    </div>
+
+                    {formData.smsNotify.provider === 'webhook' ? (
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 block mb-1">
+                            Webhook URL (รับ POST JSON: toPhone, message, senderName) *
+                          </label>
+                          <input
+                            type="url"
+                            value={formData.smsNotify.webhookUrl || ''}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                smsNotify: defaultSmsCfg({
+                                  ...prev.smsNotify,
+                                  webhookUrl: e.target.value.trim(),
+                                }),
+                              }))
+                            }
+                            placeholder="https://hook.example.com/sms-send"
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 block mb-1">
+                            ชื่อผู้ส่ง (Sender Name - ถ้ามี)
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.smsNotify.senderName || ''}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                smsNotify: defaultSmsCfg({
+                                  ...prev.smsNotify,
+                                  senderName: e.target.value,
+                                }),
+                              }))
+                            }
+                            placeholder="เช่น MyQueueShop"
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-xs font-semibold text-slate-700 block mb-1">
+                            {formData.smsNotify.provider === 'twilio'
+                              ? 'Twilio From Phone Number (เช่น +12025550199) *'
+                              : 'Sender Name (ชื่อผู้ส่งที่อนุมัติแล้วใน ThaiBulkSMS)'}
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.smsNotify.senderName || ''}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                smsNotify: defaultSmsCfg({
+                                  ...prev.smsNotify,
+                                  senderName: e.target.value,
+                                }),
+                              }))
+                            }
+                            placeholder={
+                              formData.smsNotify.provider === 'twilio'
+                                ? '+12025550199'
+                                : 'เช่น ProService (เว้นว่างใช้ค่ามาตรฐานได้)'
+                            }
+                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              {formData.smsNotify.provider === 'twilio'
+                                ? 'Account SID *'
+                                : 'API Key *'}
+                            </label>
+                            <input
+                              type="text"
+                              value={formData.smsNotify.apiKey || ''}
+                              onChange={(e) =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  smsNotify: defaultSmsCfg({
+                                    ...prev.smsNotify,
+                                    apiKey: e.target.value.trim(),
+                                  }),
+                                }))
+                              }
+                              placeholder={
+                                formData.smsNotify.provider === 'twilio' ? 'ACxxxxxxxx...' : 'API Key'
+                              }
+                              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              {formData.smsNotify.provider === 'twilio'
+                                ? 'Auth Token *'
+                                : 'API Secret *'}
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showSmsSecret ? 'text' : 'password'}
+                                value={formData.smsNotify.apiSecret || ''}
+                                onChange={(e) =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    smsNotify: defaultSmsCfg({
+                                      ...prev.smsNotify,
+                                      apiSecret: e.target.value.trim(),
+                                    }),
+                                  }))
+                                }
+                                placeholder="Secret / Token"
+                                className="w-full pl-3 pr-9 py-2 text-xs border border-slate-200 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowSmsSecret(!showSmsSecret)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                {showSmsSecret ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Customer LINE Fallback & Event Conditions */}
+                <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                  <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    เงื่อนไขการส่ง SMS แจ้งเตือนลูกค้า
+                  </h5>
+
+                  <label className="flex items-start gap-3 p-3.5 rounded-xl border-2 border-sky-200 bg-sky-50/60 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.smsNotify?.onlyWhenNoCustomerLine ?? true}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          smsNotify: defaultSmsCfg({
+                            ...prev.smsNotify,
+                            onlyWhenNoCustomerLine: e.target.checked,
+                          }),
+                        }))
+                      }
+                      className="mt-0.5 w-4 h-4 text-sky-600 rounded border-slate-300 focus:ring-sky-500"
+                    />
+                    <div className="text-xs">
+                      <span className="font-bold text-sky-950 block">
+                        ส่ง SMS เฉพาะกรณีลูกค้าไม่ได้กรอก LINE ID / ไม่ได้แอด LINE ร้าน (แนะนำ)
+                      </span>
+                      <span className="text-sky-800/80 block mt-0.5">
+                        หากลูกค้ามี LINE ID อยู่แล้ว ระบบจะข้ามการส่ง SMS อัตโนมัติ (ยังกดส่งเองจากหน้ารายละเอียดงานได้ตลอดเวลา)
+                      </span>
+                    </div>
+                  </label>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.autoSendOnCreate ?? true}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              autoSendOnCreate: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="mt-0.5 w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <div className="text-xs">
+                        <span className="font-semibold text-slate-800 block">
+                          {formData.smsNotify?.provider === 'device_sms'
+                            ? 'แสดงปุ่มลัดส่ง SMS เมื่อรับคิวใหม่'
+                            : 'ส่ง SMS อัตโนมัติเมื่อรับคิวใหม่'}
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          แจ้งเลขคิว วันและเวลานัดให้ลูกค้า
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.autoSendOnStatusChange ?? true}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              autoSendOnStatusChange: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="mt-0.5 w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <div className="text-xs">
+                        <span className="font-semibold text-slate-800 block">
+                          {formData.smsNotify?.provider === 'device_sms'
+                            ? 'แสดงปุ่มลัดส่ง SMS เมื่อเปลี่ยนสถานะ'
+                            : 'ส่ง SMS อัตโนมัติเมื่อเปลี่ยนสถานะ'}
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          แจ้งกำลังเดินทาง / ปิดงาน / เลื่อนนัด
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.notifyOnNewJob ?? true}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              notifyOnNewJob: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <span>แจ้งเมื่อรับคิวใหม่</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.notifyOnStatusChange ?? true}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              notifyOnStatusChange: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <span>แจ้งเมื่อเปลี่ยนสถานะ</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.notifyOnReschedule ?? true}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              notifyOnReschedule: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <span>แจ้งเมื่อเลื่อนนัดหมาย</span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.includeShopPhone ?? true}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              includeShopPhone: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <span>แนบเบอร์โทรร้านท้ายข้อความ SMS</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={formData.smsNotify?.includeMapLink ?? false}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            smsNotify: defaultSmsCfg({
+                              ...prev.smsNotify,
+                              includeMapLink: e.target.checked,
+                            }),
+                          }))
+                        }
+                        className="w-4 h-4 text-sky-600 rounded border-slate-300"
+                      />
+                      <span>แนบลิงก์แผนที่ Google Maps ใน SMS</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Test Phone & Save Buttons */}
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                    <input
+                      type="tel"
+                      value={testSmsPhone}
+                      onChange={(e) => setTestSmsPhone(e.target.value)}
+                      placeholder="เบอร์มือถือสำหรับทดสอบส่ง SMS เช่น 0812345678"
+                      className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTestSmsNotify}
+                      disabled={isTestingSms}
+                      className="px-4 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-300 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+                    >
+                      {isTestingSms ? (
+                        <RefreshCw className="w-4 h-4 animate-spin text-sky-600" />
+                      ) : (
+                        <Send className="w-4 h-4 text-sky-600" />
+                      )}
+                      <span>
+                        {isTestingSms
+                          ? 'กำลังส่งทดสอบ...'
+                          : formData.smsNotify?.provider === 'device_sms'
+                          ? 'ทดสอบเปิดแอป SMS'
+                          : 'ทดสอบส่ง SMS ทันที'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {smsTestResult && (
+                    <div
+                      className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                        smsTestResult.success
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}
+                    >
+                      {smsTestResult.success ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      )}
+                      <span>{smsTestResult.message}</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    {isSaved && (
+                      <span className="text-xs font-medium text-emerald-600 flex items-center gap-1">
+                        <CheckCircle className="w-4 h-4" />
+                        บันทึกแล้ว
+                      </span>
+                    )}
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl text-xs flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>บันทึกการตั้งค่า SMS</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            {/* Right Column: Live SMS Preview & Shared Logs */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-sky-600" />
+                    <h4 className="font-bold text-slate-900 text-sm">
+                      ตัวอย่างข้อความ SMS ที่ลูกค้าจะได้รับ
+                    </h4>
+                  </div>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-semibold font-mono">
+                    {(testSmsCustomMsg.trim() || formatTestSms(formData)).length} ตัวอักษร
+                  </span>
+                </div>
+
+                {/* Simulated Smartphone SMS Bubble */}
+                <div className="bg-slate-900 rounded-2xl p-4 text-white space-y-3 shadow-inner">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 text-[11px] text-slate-400">
+                    <span>ข้อความ SMS ขาเข้า</span>
+                    <span className="font-mono">
+                      {formData.smsNotify?.senderName || formData.shopName || 'ServiceSMS'}
+                    </span>
+                  </div>
+
+                  <div className="bg-sky-500 text-white rounded-2xl rounded-tl-sm p-3 text-xs leading-relaxed whitespace-pre-line shadow-sm">
+                    {testSmsCustomMsg.trim() || formatTestSms(formData)}
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 text-right">
+                    ส่งถึงเบอร์มือถือลูกค้าโดยตรง แม้ลูกค้าไม่ได้แอด LINE
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                    ข้อความทดสอบเอง (เว้นว่างเพื่อใช้ข้อความตัวอย่างด้านบน):
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={testSmsCustomMsg}
+                    onChange={(e) => setTestSmsCustomMsg(e.target.value)}
+                    placeholder="พิมพ์ข้อความทดสอบเพิ่มเติมได้..."
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sample = testSmsCustomMsg.trim() || formatTestSms(formData);
+                    navigator.clipboard.writeText(sample);
+                    setCopyFeedback('sample-sms');
+                    setTimeout(() => setCopyFeedback(null), 2000);
+                  }}
+                  className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  {copyFeedback === 'sample-sms' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>คัดลอกข้อความตัวอย่างแล้ว</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>คัดลอกข้อความตัวอย่าง SMS</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Notification History Logs */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-slate-600" />
+                    <h4 className="font-bold text-slate-900 text-sm">
+                      ประวัติการส่งแจ้งเตือน LINE &amp; SMS ({notificationLogs.length})
+                    </h4>
+                  </div>
+                  {notificationLogs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearLogs}
+                      className="text-[11px] text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>ล้างประวัติ</span>
+                    </button>
+                  )}
+                </div>
+
+                {notificationLogs.length === 0 ? (
+                  <div className="text-center py-6 text-slate-400 text-xs">
+                    <MessageSquare className="w-8 h-8 mx-auto mb-1.5 opacity-30" />
+                    <p>ยังไม่มีประวัติการส่งแจ้งเตือน</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {notificationLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="p-2.5 rounded-xl border border-slate-100 bg-slate-50 text-xs space-y-1 hover:bg-slate-100/80 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                log.channel === 'sms'
+                                  ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              }`}
+                            >
+                              {log.channel === 'sms' ? 'SMS' : 'LINE'}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                log.success
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {log.success ? (
+                                <CheckCircle className="w-3 h-3" />
+                              ) : (
+                                <AlertCircle className="w-3 h-3" />
+                              )}
+                              {log.success ? 'ส่งสำเร็จ' : 'ส่งไม่สำเร็จ'}
+                            </span>
+                          </div>
                           <span className="text-[10px] text-slate-500 font-mono">
                             {new Date(log.timestamp).toLocaleTimeString('th-TH', {
                               hour: '2-digit',

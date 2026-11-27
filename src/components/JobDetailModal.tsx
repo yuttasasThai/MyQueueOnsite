@@ -31,6 +31,8 @@ import {
   Film,
   DollarSign,
   Award,
+  MessageSquare,
+  Smartphone,
 } from 'lucide-react';
 import { RepairJob, RepairStatus, ShopSettings, StatusPhotoItem } from '../types';
 import { getWarrantyStatus } from '../services/storage';
@@ -50,6 +52,15 @@ import {
   getLineShareUrl,
   addNotificationLog,
 } from '../services/lineNotify';
+import {
+  cleanSmsPhone,
+  formatCustomerNewJobSms,
+  formatCustomerStatusSms,
+  formatCustomerRescheduleSms,
+  isSmsGatewayConfigured,
+  resolveSmsSettings,
+  sendSmsNotification,
+} from '../services/smsNotify';
 
 const ALL_STATUSES: RepairStatus[] = [
   'รับงาน',
@@ -125,6 +136,12 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const [lineResultMsg, setLineResultMsg] = useState<{ success: boolean; text: string } | null>(null);
   const [copiedLine, setCopiedLine] = useState(false);
 
+  // SMS customer notification states
+  const [smsDraftText, setSmsDraftText] = useState<string>('');
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [smsResultMsg, setSmsResultMsg] = useState<{ success: boolean; text: string } | null>(null);
+  const [copiedSms, setCopiedSms] = useState(false);
+
   useEffect(() => {
     if (job) {
       setActualCostInput(
@@ -142,6 +159,8 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
       setIsRescheduleOpen(false);
       setIsCancelOpen(false);
       setClosingSaved(false);
+      setSmsDraftText(formatCustomerStatusSms(job, job.status, settings));
+      setSmsResultMsg(null);
     }
   }, [job?.id, job?.status, job?.actualCost, job?.warrantyDays]);
 
@@ -228,6 +247,42 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
     setTimeout(() => {
       setLineResultMsg(null);
     }, 4000);
+  };
+
+  // Send customer SMS notification (Gateway auto-send or Device native SMS app)
+  const handleSendCustomerSms = async (forceDeviceSms = false) => {
+    const cleaned = cleanSmsPhone(job.customer.phone);
+    if (!cleaned || cleaned.length < 8) {
+      setSmsResultMsg({
+        success: false,
+        text: 'ไม่พบเบอร์โทรศัพท์ลูกค้าที่ถูกต้องสำหรับส่ง SMS',
+      });
+      return;
+    }
+
+    const messageText = (smsDraftText || formatCustomerStatusSms(job, job.status, settings)).trim();
+    setIsSendingSms(true);
+    setSmsResultMsg(null);
+
+    const res = await sendSmsNotification({
+      cfg: settings.smsNotify,
+      toPhone: job.customer.phone,
+      message: messageText,
+      settings,
+      job,
+      eventType: 'sms_customer',
+      forceDeviceSms,
+    });
+
+    setSmsResultMsg({
+      success: res.success,
+      text: res.message,
+    });
+    setIsSendingSms(false);
+
+    setTimeout(() => {
+      setSmsResultMsg(null);
+    }, 5000);
   };
 
   return (
@@ -593,6 +648,18 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 <MessageCircle className="w-3.5 h-3.5" />
                 <span>ทัก LINE</span>
               </a>
+            ) : cleanSmsPhone(job.customer.phone) ? (
+              <button
+                type="button"
+                onClick={() =>
+                  handleSendCustomerSms(!isSmsGatewayConfigured(settings.smsNotify))
+                }
+                className="flex items-center justify-center gap-1.5 py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                title="ลูกค้าไม่ได้แอด LINE — ส่ง SMS แจ้งเตือนคิวงานทันที"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>ส่ง SMS (ไม่มี LINE)</span>
+              </button>
             ) : (
               <span className="flex items-center justify-center py-2 px-3 bg-slate-100 text-slate-400 rounded-lg text-xs">
                 ไม่มี LINE
@@ -886,6 +953,160 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
           </>
         )}
+
+        {/* Customer SMS Notification Card (กรณีลูกค้าไม่ได้แอด LINE หรือส่งเสริมผ่าน SMS) */}
+        <div className="p-4 rounded-xl border border-sky-200 bg-sky-50/60 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold text-xs sm:text-sm text-slate-900 block">
+                  ส่ง SMS แจ้งเตือนคิวงานลูกค้า
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {cleanSmsPhone(job.customer.phone)
+                    ? `ส่งเข้าเบอร์ลูกค้า: ${job.customer.phone}`
+                    : 'กรุณาระบุเบอร์โทรลูกค้าก่อนส่ง SMS'}
+                </span>
+              </div>
+            </div>
+
+            {!job.customer.lineId ? (
+              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
+                ลูกค้าไม่ได้แอด LINE — แนะนำส่ง SMS
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
+                SMS เสริม
+              </span>
+            )}
+          </div>
+
+          {/* Quick Template Pills */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate-500 font-medium mr-0.5">เทมเพลต:</span>
+            {[
+              { label: 'แจ้งรับคิว', fn: () => formatCustomerNewJobSms(job, settings) },
+              {
+                label: `สถานะ (${job.status})`,
+                fn: () => formatCustomerStatusSms(job, job.status, settings),
+              },
+              {
+                label: 'กำลังเดินทาง',
+                fn: () => formatCustomerStatusSms(job, 'กำลังไป', settings),
+              },
+              {
+                label: 'ปิดงาน/ประกัน',
+                fn: () => formatCustomerStatusSms(job, 'ปิดงาน', settings),
+              },
+              {
+                label: 'เลื่อนนัด',
+                fn: () => formatCustomerRescheduleSms(job, settings),
+              },
+            ].map((tpl) => (
+              <button
+                key={tpl.label}
+                type="button"
+                onClick={() => setSmsDraftText(tpl.fn())}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-sky-100 text-sky-800 border border-sky-200 text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                {tpl.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Editable SMS Draft Box */}
+          <div className="space-y-1">
+            <textarea
+              rows={3}
+              value={smsDraftText}
+              onChange={(e) => setSmsDraftText(e.target.value)}
+              placeholder="แก้ไขข้อความ SMS ก่อนส่งให้ลูกค้า..."
+              className="w-full p-2.5 text-xs bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-800 leading-relaxed resize-y"
+            />
+            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+              <span>
+                โหมดตั้งค่า:{' '}
+                {resolveSmsSettings(settings.smsNotify).provider === 'device_sms'
+                  ? 'แอป SMS มือถือ (ฟรี)'
+                  : resolveSmsSettings(settings.smsNotify).provider.toUpperCase()}
+              </span>
+              <span>{smsDraftText.length} ตัวอักษร</span>
+            </div>
+          </div>
+
+          {smsResultMsg && (
+            <div
+              className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                smsResultMsg.success
+                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  : 'bg-rose-100 text-rose-900 border border-rose-200'
+              }`}
+            >
+              <Check className="w-4 h-4 shrink-0" />
+              <span>{smsResultMsg.text}</span>
+            </div>
+          )}
+
+          {/* SMS Dispatch Buttons */}
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {isSmsGatewayConfigured(settings.smsNotify) && (
+              <button
+                type="button"
+                onClick={() => handleSendCustomerSms(false)}
+                disabled={isSendingSms || !cleanSmsPhone(job.customer.phone)}
+                className="flex-1 py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {isSendingSms ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                <span>{isSendingSms ? 'กำลังส่ง SMS...' : 'ส่ง SMS อัตโนมัติทันที'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => handleSendCustomerSms(true)}
+              disabled={isSendingSms || !cleanSmsPhone(job.customer.phone)}
+              className={`${
+                isSmsGatewayConfigured(settings.smsNotify)
+                  ? 'py-2 px-3 bg-white hover:bg-sky-100 text-sky-800 border border-sky-300'
+                  : 'flex-1 py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white'
+              } rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 cursor-pointer`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>เปิดแอป SMS มือถือ</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  smsDraftText || formatCustomerStatusSms(job, job.status, settings)
+                );
+                setCopiedSms(true);
+                setTimeout(() => setCopiedSms(false), 2000);
+              }}
+              className="py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              {copiedSms ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>คัดลอกแล้ว</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>คัดลอก SMS</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
 
         {/* LINE Notify Action Card */}
         <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 space-y-3">

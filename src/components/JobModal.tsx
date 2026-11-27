@@ -14,6 +14,7 @@ import {
   Tag,
   Lock,
   Edit3,
+  MessageSquare,
 } from 'lucide-react';
 import { RepairJob, RepairStatus, UserAccount } from '../types';
 import { getStatusFlowIndex } from './StatusStepperIcons';
@@ -447,6 +448,12 @@ export const JobModal: React.FC<JobModalProps> = ({
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
+                {!customerLineId.trim() && customerPhone.trim().length >= 8 && (
+                  <p className="mt-1.5 text-[11px] text-sky-700 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                    <span>ไม่มี LINE ลูกค้า — หลังบันทึกสามารถส่ง SMS แจ้งเตือนเข้าเบอร์โทรลูกค้าได้ทันที</span>
+                  </p>
+                )}
               </div>
 
               <div>
