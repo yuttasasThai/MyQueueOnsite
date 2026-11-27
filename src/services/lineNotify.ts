@@ -149,6 +149,10 @@ export function formatStatusChangeNotification(
     lines.push(`📅 วันนัดหมาย: ${job.appointmentDate} (${job.appointmentTime || 'ตามนัด'})`);
   }
 
+  if (newStatus === 'ยกเลิก' && job.cancelReason) {
+    lines.push(`📝 เหตุผลยกเลิก: ${job.cancelReason}`);
+  }
+
   if (cfg?.includeMapLink) {
     const mapUrl = getMapUrlForJob(job);
     if (mapUrl && (newStatus === 'กำลังไป' || newStatus === 'รับงาน')) {
@@ -164,6 +168,42 @@ export function formatStatusChangeNotification(
 }
 
 /**
+ * Format appointment reschedule notification message
+ */
+export function formatRescheduleNotification(
+  job: RepairJob,
+  previousDate: string,
+  previousTime: string,
+  settings: ShopSettings,
+  reason?: string
+): string {
+  const cfg = settings.lineNotify;
+  const lines: string[] = [];
+
+  lines.push(`📆 [แจ้งเปลี่ยนวัน/เวลานัดหมายซ่อม]`);
+  lines.push(`━━━━━━━━━━━━━━━━`);
+  lines.push(`📌 คิวงาน: ${job.queueNumber}`);
+  lines.push(`📦 สินค้า: ${job.product}`);
+  lines.push(`👤 ลูกค้า: ${job.customer.name}`);
+  if (cfg?.includeCustomerPhone && job.customer.phone) {
+    lines.push(`📞 โทร: ${job.customer.phone}`);
+  }
+  lines.push(`❌ นัดเดิม: ${previousDate} (${previousTime || 'ไม่ระบุเวลา'})`);
+  lines.push(`✅ นัดใหม่: ${job.appointmentDate} (${job.appointmentTime || 'ไม่ระบุเวลา'})`);
+  if (reason) {
+    lines.push(`📝 เหตุผล/หมายเหตุ: ${reason}`);
+  }
+  if (job.assignedUserName) {
+    lines.push(`👷 ช่างประจำงาน: ${job.assignedUserName}`);
+  }
+  lines.push(`━━━━━━━━━━━━━━━━`);
+  lines.push(`🏪 ${settings.shopName || 'Repair Onsite Service'}`);
+  lines.push(`⏰ ${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`);
+
+  return lines.join('\n');
+}
+
+/**
  * Format 30-minute urgent appointment reminder text fallback
  */
 export function formatThirtyMinReminderText(
@@ -171,10 +211,16 @@ export function formatThirtyMinReminderText(
   schedule: AppointmentReminderSchedule,
   settings?: ShopSettings
 ): string {
-  const minsLeft = Math.max(0, Math.round((schedule.appointmentAt - Date.now()) / 60000));
-  const timeText = minsLeft > 0 ? `อีก ${minsLeft} นาที จะถึงเวลานัดหมาย!` : `ถึงเวลานัดหมายซ่อมแล้ว!`;
+  const diffMins = Math.round((schedule.appointmentAt - Date.now()) / 60000);
+  const timeText =
+    diffMins > 0
+      ? `อีก ${diffMins} นาที จะถึงเวลานัดหมาย!`
+      : diffMins === 0
+      ? `ถึงเวลานัดหมายซ่อมแล้ว!`
+      : `เกินกำหนดคิวงานแล้ว ${Math.abs(diffMins)} นาที!`;
+  const tagHeader = diffMins < 0 ? '🔴 [แจ้งเตือนเกินคิวงาน!]' : '🚨 [แจ้งเตือนก่อนนัด 30 นาที]';
   const lines = [
-    `🚨 [แจ้งเตือนก่อนนัด 30 นาที] ${timeText}`,
+    `${tagHeader} ${timeText}`,
     `━━━━━━━━━━━━━━━━`,
     `📌 คิวงาน: ${job.queueNumber}`,
     `📦 งาน: ${job.product}`,
@@ -197,7 +243,7 @@ export function formatThirtyMinReminderText(
 }
 
 /**
- * Build interactive LINE Flex Message for 30-min-before appointment alarm
+ * Build interactive LINE Flex Message for before-30m and overdue-queue appointment alarms
  * Includes both Postback "ยืนยันรับทราบทาง LINE" and App URI confirmation fallback
  */
 export function buildThirtyMinReminderFlexMessage(
@@ -205,9 +251,15 @@ export function buildThirtyMinReminderFlexMessage(
   schedule: AppointmentReminderSchedule,
   appBaseUrl: string
 ) {
-  const minsLeft = Math.max(0, Math.round((schedule.appointmentAt - Date.now()) / 60000));
+  const diffMins = Math.round((schedule.appointmentAt - Date.now()) / 60000);
+  const isOverdue = diffMins < 0;
+  const headerTitle = isOverdue ? '🔴 แจ้งเตือนเกินคิวงาน!' : '🚨 แจ้งเตือนก่อนนัด 30 นาที';
   const headerSubtitle =
-    minsLeft > 0 ? `อีก ${minsLeft} นาที ถึงเวลานัด!` : 'ถึงเวลานัดหมายซ่อมแล้ว!';
+    diffMins > 0
+      ? `อีก ${diffMins} นาที ถึงเวลานัด!`
+      : diffMins === 0
+      ? 'ถึงเวลานัดหมายซ่อมแล้ว!'
+      : `เลยเวลานัดมาแล้ว ${Math.abs(diffMins)} นาที!`;
   const mapUrl = getMapUrlForJob(job);
   const cleanOrigin = (appBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '');
   const ackUri = cleanOrigin
@@ -340,7 +392,7 @@ export function buildThirtyMinReminderFlexMessage(
         contents: [
           {
             type: 'text',
-            text: '🚨 แจ้งเตือนก่อนนัด 30 นาที',
+            text: headerTitle,
             color: '#FEF3C7',
             size: 'xs',
             weight: 'bold',

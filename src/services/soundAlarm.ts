@@ -1,20 +1,48 @@
-// File: /src/services/soundAlarm.ts | Revision: Rev 15 | Version: 1.3.0 | Modified: 2026-11-13
-// Audio Alarm & Speech Synthesis Service for Daily Queue & Expired Warranty Alerts
-// Supports repeat loop, user-gesture audio unlock fallback, and automatic timeout stop (e.g. 5 minutes)
+// File: /src/services/soundAlarm.ts | Revision: Rev 21 | Version: 1.5.2 | Modified: 2026-11-16
+// Audio Alarm & Speech Synthesis Service for Appointment (Before/Overdue), >2-Day Pending, Daily Queue & Warranty Alerts
+// Supports repeat loop, Android Chrome user-gesture audio unlock, voice loading, and automatic timeout stop
 
 class WarrantyAlarmService {
   private audioCtx: AudioContext | null = null;
   private isAlarmPlaying = false;
   private alarmInterval: number | null = null;
   private speechTimeout: number | null = null;
+  private speakDispatchTimeout: number | null = null;
   private autoStopTimeout: number | null = null;
   private currentSpeechText = '';
   private gestureUnlockBound = false;
+  private cachedThaiVoice: SpeechSynthesisVoice | null = null;
+
+  constructor() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      this.refreshThaiVoice();
+      try {
+        window.speechSynthesis.addEventListener('voiceschanged', () => {
+          this.refreshThaiVoice();
+        });
+      } catch {}
+    }
+  }
+
+  private refreshThaiVoice(): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      const voices = window.speechSynthesis.getVoices();
+      const found = voices.find(
+        (v) => v.lang === 'th-TH' || v.lang.startsWith('th') || v.name.includes('Thai')
+      );
+      if (found) {
+        this.cachedThaiVoice = found;
+      }
+    } catch {}
+  }
 
   private getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return null;
       if (!this.audioCtx || this.audioCtx.state === 'closed') {
         this.audioCtx = new AudioCtx();
@@ -28,11 +56,17 @@ class WarrantyAlarmService {
     }
   }
 
-  private handleUserGestureUnlock = () => {
-    if (!this.isAlarmPlaying) return;
-    if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume().catch(() => {});
+  public unlockAudio(): void {
+    const ctx = this.getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
     }
+    this.refreshThaiVoice();
+  }
+
+  private handleUserGestureUnlock = () => {
+    this.unlockAudio();
+    if (!this.isAlarmPlaying) return;
     this.playIteration();
     this.detachGestureUnlock();
   };
@@ -41,6 +75,8 @@ class WarrantyAlarmService {
     if (typeof window === 'undefined' || this.gestureUnlockBound) return;
     this.gestureUnlockBound = true;
     window.addEventListener('pointerdown', this.handleUserGestureUnlock, { passive: true });
+    window.addEventListener('touchstart', this.handleUserGestureUnlock, { passive: true });
+    window.addEventListener('click', this.handleUserGestureUnlock, { passive: true });
     window.addEventListener('keydown', this.handleUserGestureUnlock, { passive: true });
   }
 
@@ -48,6 +84,8 @@ class WarrantyAlarmService {
     if (typeof window === 'undefined' || !this.gestureUnlockBound) return;
     this.gestureUnlockBound = false;
     window.removeEventListener('pointerdown', this.handleUserGestureUnlock);
+    window.removeEventListener('touchstart', this.handleUserGestureUnlock);
+    window.removeEventListener('click', this.handleUserGestureUnlock);
     window.removeEventListener('keydown', this.handleUserGestureUnlock);
   }
 
@@ -99,27 +137,34 @@ class WarrantyAlarmService {
     }
   }
 
-  // Speak Thai announcement using Web Speech API
+  // Speak Thai announcement using Web Speech API (with safe cancel->speak gap for Android Chrome)
   private speakAnnouncement(text: string): void {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) return;
     try {
       window.speechSynthesis.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'th-TH';
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
-      utterance.volume = 1.0;
-
-      const voices = window.speechSynthesis.getVoices();
-      const thaiVoice = voices.find(
-        (v) => v.lang === 'th-TH' || v.lang.startsWith('th') || v.name.includes('Thai')
-      );
-      if (thaiVoice) {
-        utterance.voice = thaiVoice;
+      if (this.speakDispatchTimeout) {
+        window.clearTimeout(this.speakDispatchTimeout);
       }
 
-      window.speechSynthesis.speak(utterance);
+      this.speakDispatchTimeout = window.setTimeout(() => {
+        if (!this.isAlarmPlaying && text !== this.currentSpeechText) return;
+        try {
+          this.refreshThaiVoice();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'th-TH';
+          utterance.rate = 0.95;
+          utterance.pitch = 1.05;
+          utterance.volume = 1.0;
+
+          if (this.cachedThaiVoice) {
+            utterance.voice = this.cachedThaiVoice;
+          }
+
+          window.speechSynthesis.speak(utterance);
+        } catch (err) {
+          console.warn('Speech synthesis speak error:', err);
+        }
+      }, 60);
     } catch (e) {
       console.warn('Speech synthesis error:', e);
     }
@@ -187,6 +232,10 @@ class WarrantyAlarmService {
       window.clearTimeout(this.speechTimeout);
       this.speechTimeout = null;
     }
+    if (this.speakDispatchTimeout) {
+      window.clearTimeout(this.speakDispatchTimeout);
+      this.speakDispatchTimeout = null;
+    }
     if (this.autoStopTimeout) {
       window.clearTimeout(this.autoStopTimeout);
       this.autoStopTimeout = null;
@@ -199,10 +248,7 @@ class WarrantyAlarmService {
   }
 
   public playOnce(speechText?: string): void {
-    const ctx = this.getAudioContext();
-    if (ctx && ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
+    this.unlockAudio();
     this.playAlertBeep();
     if (speechText) {
       window.setTimeout(() => {

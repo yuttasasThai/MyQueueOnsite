@@ -438,13 +438,22 @@ export function checkUserLinkExpiry(expiresAtStr: string): {
 
 // Calculate Warranty status
 export interface WarrantyStatus {
-  status: 'valid' | 'warning' | 'expired';
+  status: 'valid' | 'warning' | 'expired' | 'none';
   daysRemaining: number;
   label: string;
   formattedEndDate: string;
 }
 
-export function getWarrantyStatus(endDateStr: string, _daysTotal: number): WarrantyStatus {
+export function getWarrantyStatus(endDateStr: string, daysTotal: number): WarrantyStatus {
+  if (typeof daysTotal === 'number' && daysTotal <= 0) {
+    return {
+      status: 'none',
+      daysRemaining: 0,
+      label: 'ไม่มีประกัน',
+      formattedEndDate: '-',
+    };
+  }
+
   const endDate = new Date(endDateStr);
   const now = new Date();
   // set times to midnight for fair day comparison

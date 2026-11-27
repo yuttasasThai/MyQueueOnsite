@@ -1,7 +1,9 @@
-// File: /src/services/appointmentAlarm.ts | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
+// File: /src/services/appointmentAlarm.ts | Revision: Rev 21 | Version: 1.5.2 | Modified: 2026-11-16
 import { RepairJob } from '../types';
 
 const ACK_STORAGE_KEY = 'myqueue_appt_30m_acks_v1';
+
+export type QueueReminderPhase = 'before_30m' | 'overdue_queue';
 
 export interface AppointmentReminderSchedule {
   id: string;
@@ -16,6 +18,14 @@ export interface AppointmentReminderSchedule {
   appointmentAt: number; // Epoch ms
   reminderAt: number; // Epoch ms (30 minutes before appointmentAt)
   ackKey: string;
+  phase?: QueueReminderPhase;
+}
+
+export interface OverdueTwoDaysItem {
+  job: RepairJob;
+  overdueDays: number;
+  overdueHours: number;
+  referenceDateStr: string;
 }
 
 /**
@@ -73,12 +83,13 @@ export function getAppointmentTimestamps(
   return { appointmentAt, reminderAt, startLabel };
 }
 
-export function getAckKeyForJob(job: RepairJob): string {
+export function getAckKeyForJob(job: RepairJob, phase: QueueReminderPhase = 'before_30m'): string {
   const parsed = parseAppointmentStartTime(job.appointmentTime);
   const timeToken = parsed
     ? `${String(parsed.hour).padStart(2, '0')}${String(parsed.minute).padStart(2, '0')}`
     : 'none';
-  return `${job.id}_${job.appointmentDate}_${timeToken}`;
+  const base = `${job.id}_${job.appointmentDate}_${timeToken}`;
+  return phase === 'overdue_queue' ? `${base}_overdue` : base;
 }
 
 export function loadAcknowledgedAppointmentKeys(): string[] {
@@ -105,9 +116,17 @@ export function saveAcknowledgedAppointmentKey(ackKey: string): string[] {
   return existing;
 }
 
-export function buildUpcomingAppointmentSchedules(jobs: RepairJob[]): AppointmentReminderSchedule[] {
-  const now = Date.now();
+/**
+ * Build schedule entries covering BOTH:
+ * 1) Before appointment (30 minutes before appointmentAt)
+ * 2) Overdue queue (from appointmentAt up to 48 hours past appointmentAt)
+ */
+export function buildUpcomingAppointmentSchedules(
+  jobs: RepairJob[],
+  now = Date.now()
+): AppointmentReminderSchedule[] {
   const list: AppointmentReminderSchedule[] = [];
+  const fortyEightHoursMs = 48 * 60 * 60 * 1000;
 
   for (const job of jobs) {
     if (job.status === 'ซ่อมแล้ว' || job.status === 'ปิดงาน' || job.status === 'ยกเลิก') {
@@ -116,8 +135,16 @@ export function buildUpcomingAppointmentSchedules(jobs: RepairJob[]): Appointmen
     const ts = getAppointmentTimestamps(job.appointmentDate, job.appointmentTime);
     if (!ts) continue;
 
-    // Include schedules that are upcoming or within active window (up to 30 mins after start)
-    if (ts.appointmentAt + 30 * 60 * 1000 < now) continue;
+    // Skip if past 48 hours (handed over to >2-day unclosed job alarm)
+    if (now > ts.appointmentAt + fortyEightHoursMs) continue;
+
+    const isOverdueNow = now >= ts.appointmentAt;
+    // When overdue, skip if technician already actively started repairing ('กำลังไป' / 'กำลังซ่อม')
+    if (isOverdueNow && (job.status === 'กำลังไป' || job.status === 'กำลังซ่อม')) {
+      continue;
+    }
+
+    const phase: QueueReminderPhase = isOverdueNow ? 'overdue_queue' : 'before_30m';
 
     list.push({
       id: job.id,
@@ -131,24 +158,31 @@ export function buildUpcomingAppointmentSchedules(jobs: RepairJob[]): Appointmen
       appointmentTime: job.appointmentTime || ts.startLabel,
       appointmentAt: ts.appointmentAt,
       reminderAt: ts.reminderAt,
-      ackKey: getAckKeyForJob(job),
+      ackKey: getAckKeyForJob(job, phase),
+      phase,
     });
   }
 
   return list.sort((a, b) => a.reminderAt - b.reminderAt);
 }
 
+/**
+ * Return all jobs whose alarm is currently due — BOTH:
+ * - Before queue: within 30 minutes before appointmentAt
+ * - Overdue queue: past appointmentAt (up to 48 hours) while job is still pending/unstarted
+ */
 export function getDueAppointmentReminders(
   jobs: RepairJob[],
   now = Date.now()
 ): { job: RepairJob; schedule: AppointmentReminderSchedule }[] {
   const ackSet = new Set(loadAcknowledgedAppointmentKeys());
-  const schedules = buildUpcomingAppointmentSchedules(jobs);
+  const schedules = buildUpcomingAppointmentSchedules(jobs, now);
   const due: { job: RepairJob; schedule: AppointmentReminderSchedule }[] = [];
+  const fortyEightHoursMs = 48 * 60 * 60 * 1000;
 
   for (const sched of schedules) {
     if (ackSet.has(sched.ackKey)) continue;
-    if (now >= sched.reminderAt && now <= sched.appointmentAt + 30 * 60 * 1000) {
+    if (now >= sched.reminderAt && now <= sched.appointmentAt + fortyEightHoursMs) {
       const job = jobs.find((j) => j.id === sched.id);
       if (job) {
         due.push({ job, schedule: sched });
@@ -159,6 +193,58 @@ export function getDueAppointmentReminders(
 }
 
 export const getDueOneHourReminders = getDueAppointmentReminders;
+
+/**
+ * Detect jobs that are still NOT closed ('ปิดงาน') or cancelled ('ยกเลิก')
+ * and have been pending for MORE THAN 2 days (> 48 hours / > 2 days past appointment or logged date).
+ */
+export function getOverdueTwoDaysUnclosedJobs(
+  jobs: RepairJob[],
+  now = Date.now()
+): OverdueTwoDaysItem[] {
+  const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+  const results: OverdueTwoDaysItem[] = [];
+
+  for (const job of jobs) {
+    if (job.status === 'ปิดงาน' || job.status === 'ยกเลิก') {
+      continue;
+    }
+
+    let refMs: number | null = null;
+    let referenceDateStr = job.appointmentDate || job.loggedDate || '';
+
+    if (job.appointmentDate && /^\d{4}-\d{2}-\d{2}$/.test(job.appointmentDate)) {
+      const ts = getAppointmentTimestamps(job.appointmentDate, job.appointmentTime);
+      if (ts) {
+        refMs = ts.appointmentAt;
+      } else {
+        const [y, m, d] = job.appointmentDate.split('-').map(Number);
+        refMs = new Date(y, m - 1, d, 9, 0, 0, 0).getTime();
+      }
+      referenceDateStr = job.appointmentDate;
+    } else if (job.loggedDate && /^\d{4}-\d{2}-\d{2}$/.test(job.loggedDate)) {
+      const [y, m, d] = job.loggedDate.split('-').map(Number);
+      refMs = new Date(y, m - 1, d, 9, 0, 0, 0).getTime();
+      referenceDateStr = job.loggedDate;
+    }
+
+    if (refMs === null || Number.isNaN(refMs)) continue;
+
+    const diffMs = now - refMs;
+    if (diffMs > TWO_DAYS_MS) {
+      const overdueHours = Math.floor(diffMs / (60 * 60 * 1000));
+      const overdueDays = Math.floor(overdueHours / 24);
+      results.push({
+        job,
+        overdueDays,
+        overdueHours,
+        referenceDateStr,
+      });
+    }
+  }
+
+  return results.sort((a, b) => b.overdueHours - a.overdueHours);
+}
 
 export async function syncSchedulesToServiceWorker(jobs: RepairJob[]): Promise<void> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
@@ -229,11 +315,13 @@ export async function showAppointmentSystemNotification(
   if (typeof window === 'undefined' || !('Notification' in window)) return false;
   if (Notification.permission !== 'granted') return false;
 
-  const minsLeft = Math.max(0, Math.round((schedule.appointmentAt - Date.now()) / 60000));
+  const diffMins = Math.round((schedule.appointmentAt - Date.now()) / 60000);
   const title =
-    minsLeft > 0
-      ? `⏰ อีก ${minsLeft} นาที ถึงเวลานัด! (${schedule.queueNumber})`
-      : `🔔 ถึงเวลานัดหมายแล้ว! (${schedule.queueNumber})`;
+    diffMins > 0
+      ? `⏰ อีก ${diffMins} นาที ถึงเวลานัด! (${schedule.queueNumber})`
+      : diffMins === 0
+      ? `🔔 ถึงเวลานัดหมายแล้ว! (${schedule.queueNumber})`
+      : `🔴 เกินคิวงานแล้ว ${Math.abs(diffMins)} นาที! (${schedule.queueNumber})`;
 
   const body = `งาน: ${schedule.product}\nลูกค้า: ${schedule.customerName} (${schedule.customerPhone})\nเวลานัด: ${schedule.appointmentTime}`;
 
@@ -261,7 +349,7 @@ export async function showAppointmentSystemNotification(
     new Notification(title, {
       body,
       icon: '/pwa-192x192.png',
-      tag: `appt-1hr-due-${schedule.ackKey}`,
+      tag: `appt-30m-due-${schedule.ackKey}`,
       requireInteraction: true,
     });
     return true;
@@ -279,8 +367,7 @@ export function isTimestampTriggerSupported(): boolean {
 }
 
 /**
- * Download an .ics calendar event with a built-in 60-minute (1 hour) VALARM
- * so native Android/iOS Calendar also alarms even if phone is rebooted or Chrome is force-killed.
+ * Download an .ics calendar event with a built-in 30-minute VALARM
  */
 export function downloadAppointmentIcsAlarm(job: RepairJob): boolean {
   const ts = getAppointmentTimestamps(job.appointmentDate, job.appointmentTime);
