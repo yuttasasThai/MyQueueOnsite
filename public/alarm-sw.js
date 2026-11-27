@@ -1,5 +1,59 @@
-// File: /public/alarm-sw.js | Revision: Rev 18 | Version: 1.4.1
-// Background Service Worker Alarm Extension for 1-Hour-Before Appointment Alerts
+// File: /public/alarm-sw.js | Revision: Rev 28 | Version: 1.5.9
+// Background Service Worker Alarm Extension for 30-Min-Before Appointment Alerts
+
+const SW_BUILD_VERSION = '1.5.9';
+const SW_VERSION_MARKER_CACHE = 'myqueue-sw-marker-v1.5.9';
+
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const hasCurrentMarker = await caches.has(SW_VERSION_MARKER_CACHE);
+        const cacheKeys = await caches.keys();
+        const legacyCaches = cacheKeys.filter(
+          (k) =>
+            (k.startsWith('myqueue-sw-marker-') && k !== SW_VERSION_MARKER_CACHE) ||
+            (k.includes('workbox-precache') && !k.includes('myqueue-onsite-v159'))
+        );
+
+        await Promise.all(legacyCaches.map((k) => caches.delete(k)));
+
+        if (!hasCurrentMarker) {
+          const markerCache = await caches.open(SW_VERSION_MARKER_CACHE);
+          await markerCache.put(
+            new Request('/__sw_version_marker__'),
+            new Response(SW_BUILD_VERSION, { headers: { 'Content-Type': 'text/plain' } })
+          );
+        }
+
+        await self.clients.claim();
+
+        if (!hasCurrentMarker) {
+          const winClients = await self.clients.matchAll({
+            type: 'window',
+            includeUncontrolled: true,
+          });
+          for (const client of winClients) {
+            try {
+              client.postMessage({ type: 'SW_UPDATED_RELOAD', version: SW_BUILD_VERSION });
+              if (legacyCaches.length > 0 && 'navigate' in client) {
+                await client.navigate(client.url);
+              }
+            } catch {
+              // Ignore cross-origin / closed client errors
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[alarm-sw] activate cleanup warning:', err);
+      }
+    })()
+  );
+});
 
 const ALARM_DB_NAME = 'myqueue_alarm_db_v1';
 const ALARM_STORE_SCHEDULES = 'schedules';
@@ -137,17 +191,21 @@ async function checkAndFireDueNotifications() {
 
     for (const item of schedules) {
       if (ackSet.has(item.ackKey)) continue;
-      // Due if current time is between 30 minutes before and 30 minutes after appointment start
-      if (now >= item.reminderAt && now <= item.appointmentAt + 30 * 60 * 1000) {
+      // Due if current time is between 30 minutes before and 48 hours after appointment start
+      if (now >= item.reminderAt && now <= item.appointmentAt + 48 * 60 * 60 * 1000) {
         const tag = `appt-30m-due-${item.ackKey}`;
         const activeNotifs = await self.registration.getNotifications({ tag });
         if (activeNotifs && activeNotifs.length > 0) {
           continue; // Already visible on notification tray
         }
 
-        const minsLeft = Math.max(0, Math.round((item.appointmentAt - now) / 60000));
+        const diffMins = Math.round((item.appointmentAt - now) / 60000);
         const timeText =
-          minsLeft > 0 ? `อีก ${minsLeft} นาทีถึงเวลานัด` : 'ถึงเวลานัดหมายแล้ว!';
+          diffMins > 0
+            ? `อีก ${diffMins} นาทีถึงเวลานัด`
+            : diffMins === 0
+            ? 'ถึงเวลานัดหมายแล้ว!'
+            : `เกินคิวงานแล้ว ${Math.abs(diffMins)} นาที!`;
 
         await self.registration.showNotification(
           `🔔 ${timeText} (${item.queueNumber})`,
