@@ -1,8 +1,8 @@
-// File: /public/alarm-sw.js | Revision: Rev 28 | Version: 1.5.9
+// File: /public/alarm-sw.js | Revision: Rev 29 | Version: 1.6.0
 // Background Service Worker Alarm Extension for 30-Min-Before Appointment Alerts
 
-const SW_BUILD_VERSION = '1.5.9';
-const SW_VERSION_MARKER_CACHE = 'myqueue-sw-marker-v1.5.9';
+const SW_BUILD_VERSION = '1.6.0';
+const SW_VERSION_MARKER_CACHE = 'myqueue-sw-marker-v1.6.0';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -17,7 +17,7 @@ self.addEventListener('activate', (event) => {
         const legacyCaches = cacheKeys.filter(
           (k) =>
             (k.startsWith('myqueue-sw-marker-') && k !== SW_VERSION_MARKER_CACHE) ||
-            (k.includes('workbox-precache') && !k.includes('myqueue-onsite-v159'))
+            (k.includes('workbox-precache') && !k.includes('myqueue-onsite-v160'))
         );
 
         await Promise.all(legacyCaches.map((k) => caches.delete(k)));
