@@ -1,9 +1,9 @@
-// File: /src/version.ts | Revision: Rev 21 | Version: 1.5.2 | Modified: 2026-11-16
+// File: /src/version.ts | Revision: Rev 28 | Version: 1.5.9 | Modified: 2026-11-27
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.5.2';
-export const APP_REVISION = 'Rev 21';
-export const APP_RELEASE_DATE = '2026-11-16';
+export const APP_VERSION = '1.5.9';
+export const APP_REVISION = 'Rev 28';
+export const APP_RELEASE_DATE = '2026-11-27';
 
 export interface RevisionRecord {
   revision: string;
@@ -14,6 +14,143 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 28',
+    version: '1.5.9',
+    date: '2026-11-27',
+    description:
+      'เชื่อมต่อฐานข้อมูลคลาวด์ Firebase Firestore & Google Sign-In สำหรับซิงค์ข้อมูลข้ามเครื่องแบบถาวร: ผูกข้อมูลคิวงาน รูปถ่ายหน้างาน การตั้งค่าร้าน หมวดงาน ช่าง และข้อมูลแอดมิน (LINE Messaging API, บัญชี User ID & วันหมดอายุ) ไว้กับ User ID และ Admin Master Workspace อย่างปลอดภัย ย้ายข้อมูลเก่าขึ้นคลาวด์อัตโนมัติโดยไม่ลบข้อมูลเดิม และกู้คืนข้อมูลครบ 100% เมื่อล็อกอินจากโทรศัพท์เครื่องใหม่',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'vite.config.ts',
+      'public/alarm-sw.js',
+      'tsconfig.json',
+      'firestore.rules',
+      'firebase-blueprint.json',
+      'src/firebase.ts',
+      'src/services/cloudSync.ts',
+      'src/components/ErrorBoundary.tsx',
+      'src/components/AdminSettings.tsx',
+      'src/components/UserLoginModal.tsx',
+      'src/components/UserLinkLoginModal.tsx',
+      'src/services/sourcePackager.ts',
+      'src/main.tsx',
+      'src/App.tsx',
+    ],
+  },
+  {
+    revision: 'Rev 27',
+    version: '1.5.8',
+    date: '2026-11-23',
+    description:
+      'แก้ไขปัญหาหน้าเว็บค้างที่เวอร์ชัน 1.5.2 อย่างถาวร: จัดการเส้นทาง /sw.js ใน server.ts ให้ส่งเป็น JavaScript พร้อม Header no-store เสมอทั้งในโหมด Dev และ Production (แก้ปัญหา /sw.js คืนค่าเป็น text/html เมื่อเริ่มเซิร์ฟเวอร์ใหม่จนเบราว์เซอร์ปฏิเสธการอัปเดต Service Worker), เพิ่มระบบล้างแคชเก่าและ Auto-Reload อัตโนมัติเมื่อเปลี่ยนเวอร์ชัน, และเพิ่มแถบปุ่ม "ดาวน์โหลด Source Code" แบบแยกเด่นชัดที่จะปรากฏเฉพาะหลังจากเข้าสู่ระบบแอดมิน (Admin) แล้วเท่านั้น',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'server.ts',
+      'vite.config.ts',
+      'public/alarm-sw.js',
+      'src/main.tsx',
+      'src/components/HeroCover.tsx',
+      'src/components/Dashboard.tsx',
+      'src/App.tsx',
+    ],
+  },
+  {
+    revision: 'Rev 26',
+    version: '1.5.7',
+    date: '2026-11-23',
+    description:
+      'สร้างหน้าดาวน์โหลด Source Code ใหม่ (Source Code Center) พร้อมตัวสร้างไฟล์ ZIP ในเบราว์เซอร์โดยตรง (Client-Side JSZip Snapshot) ไม่พึ่งการเชื่อมต่อ Server/API เพื่อแก้ปัญหา Failed to fetch บนมือถือและ Vercel 100%, มีระบบตรวจสอบและเปิดดูโค้ดจริงของทุกไฟล์ในแพ็กเกจก่อนดาวน์โหลดเพื่อยืนยันว่าเป็นเวอร์ชันล่าสุด, ตัวเลือกโหลดเฉพาะโค้ด (~220 KB) และปลดแคช index.html ออกจาก Service Worker',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'vite.config.ts',
+      'src/types.ts',
+      'src/services/sourcePackager.ts',
+      'src/components/SourceCodeDownloadPage.tsx',
+      'src/components/DownloadSourceCodeModal.tsx',
+      'src/components/Navbar.tsx',
+      'src/App.tsx',
+    ],
+  },
+  {
+    revision: 'Rev 25',
+    version: '1.5.6',
+    date: '2026-11-23',
+    description:
+      'ปรับหน้าจอตารางคิวงาน (QueueTable) เป็นแบบ Card บนมือถือเพื่ออ่านรายละเอียดงาน สถานะ และชื่อลูกค้าได้ง่ายโดยไม่ต้องเลื่อนแนวนอน, แก้ไขระบบดาวน์โหลด Source Code (.zip) ให้รองรับ Direct Link บนมือถือ ตรวจสอบไฟล์ ZIP ด้วย Magic Bytes พร้อมปิดการแคช API ใน Workbox Service Worker เพื่อไม่ให้ค้างเวอร์ชันเก่า (v1.5.2)',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'src/components/QueueTable.tsx',
+      'src/components/DownloadSourceCodeModal.tsx',
+      'src/main.tsx',
+      'vite.config.ts',
+      'server.ts',
+    ],
+  },
+  {
+    revision: 'Rev 24',
+    version: '1.5.5',
+    date: '2026-11-23',
+    description:
+      'เพิ่มแท็บ "แผนที่ (Map)" สำหรับดูตำแหน่งหมุดคิวงานซ่อมที่รอดำเนินการทั้งหมดบน Google Maps โดยแปลงที่อยู่ลูกค้าในรายละเอียดงานเป็นพิกัดอัตโนมัติ พร้อมเชื่อมต่อ Geolocation API ของเบราว์เซอร์เพื่อระบุตำแหน่งปัจจุบันของช่าง คำนวณระยะห่าง เรียงลำดับงานใกล้ที่สุด และเปิดนำทางไปยังหน้างานได้ทันที',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'src/types.ts',
+      'src/main.tsx',
+      'src/services/geocoding.ts',
+      'src/components/Navbar.tsx',
+      'src/components/JobsMapView.tsx',
+      'src/App.tsx',
+      'server.ts',
+      'api/geocode.ts',
+      'api/maps/config.ts',
+    ],
+  },
+  {
+    revision: 'Rev 23',
+    version: '1.5.4',
+    date: '2026-11-23',
+    description:
+      'แสดงรูปภาพและวิดีโอของแต่ละสถานะงานใต้แถบไอคอนสถานะโดยตรง พร้อมปุ่มกรองตามสถานะและคลิกขยายดูภาพใหญ่เต็มจอ (Lightbox), และเพิ่มกล่องอัปเดต "ค่าซ่อมจริง" และระบุ "การประกัน (ไม่มีประกัน 0 วัน / ระยะประกันตามวัน)" ได้โดยตรงเมื่อถึงสถานะปิดงาน รวมถึงในหน้าต่างปิดงาน ฟอร์มแก้ไข ตารางคิว และใบแจ้งซ่อม',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'src/services/storage.ts',
+      'src/components/JobDetailModal.tsx',
+      'src/components/CloseJobModal.tsx',
+      'src/components/JobModal.tsx',
+      'src/components/QueueTable.tsx',
+      'src/components/PrintableWorkOrder.tsx',
+      'src/App.tsx',
+    ],
+  },
+  {
+    revision: 'Rev 22',
+    version: '1.5.3',
+    date: '2026-11-17',
+    description:
+      'เพิ่มระบบเปลี่ยนวันและเวลานัดหมายซ่อมได้ทันทีทั้งในหน้ารายละเอียดงานและตารางคิวงาน (พร้อมแจ้งเตือน LINE และอัปเดตปลุกเตือนล่วงหน้าอัตโนมัติ), เพิ่มปุ่ม "ยกเลิกงาน" พร้อมระบุเหตุผลและยืนยันความปลอดภัย, ปรับหน้าต่างรูปภาพให้รองรับ 2–3 รูปขึ้นไปอย่างชัดเจนสำหรับสถานะ "กำลังซ่อม" และ "ซ่อมแล้ว", และรองรับการถ่าย/แนบทั้ง "รูปภาพและวิดีโอ" พร้อมเล่นวิดีโอได้ในสถานะ "ปิดงาน"',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'src/types.ts',
+      'src/services/mediaStorage.ts',
+      'src/services/imageUtils.ts',
+      'src/services/lineNotify.ts',
+      'src/components/MediaPreviewItem.tsx',
+      'src/components/StatusActionModals.tsx',
+      'src/components/JobStatusPhotosModal.tsx',
+      'src/components/CloseJobModal.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/components/QueueTable.tsx',
+      'src/App.tsx',
+    ],
+  },
   {
     revision: 'Rev 21',
     version: '1.5.2',

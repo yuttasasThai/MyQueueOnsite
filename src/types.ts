@@ -18,7 +18,13 @@ export interface CustomerInfo {
 
 export interface StatusPhotoItem {
   id: string;
-  dataUrl: string;
+  dataUrl: string; // Data URL สำหรับรูปภาพ หรือ 'idb://...' สำหรับไฟล์วิดีโอใน IndexedDB
+  mediaType?: 'image' | 'video';
+  thumbnailDataUrl?: string; // ภาพตัวอย่างหน้าปกวิดีโอ
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  durationSec?: number;
   createdAt: string;
   note?: string;
 }
@@ -45,8 +51,9 @@ export interface RepairJob {
   assignedUserId?: string; // ช่างที่รับผิดชอบ
   assignedUserName?: string;
   photos?: string[]; // รูปถ่ายหน้างาน (legacy)
-  statusPhotos?: StatusPhotosMap; // รูปถ่าย/แนบรูปแยกตามแต่ละสถานะของคิวงาน
+  statusPhotos?: StatusPhotosMap; // รูปถ่าย/วิดีโอ/แนบรูปแยกตามแต่ละสถานะของคิวงาน
   closedAt?: string; // วันที่ปิดงานซ่อม YYYY-MM-DD
+  cancelReason?: string; // เหตุผลการยกเลิกงาน (หากมี)
   notes?: string;
 }
 
@@ -119,4 +126,4 @@ export interface UserAccount {
   notes?: string;
 }
 
-export type ViewTab = 'dashboard' | 'queue' | 'calendar' | 'create_link' | 'settings';
+export type ViewTab = 'dashboard' | 'queue' | 'calendar' | 'map' | 'create_link' | 'source_code' | 'settings';

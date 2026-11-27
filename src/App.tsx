@@ -1,5 +1,5 @@
 // File: /src/App.tsx | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { Navbar } from './components/Navbar';
 import { HeroCover } from './components/HeroCover';
 import { Dashboard } from './components/Dashboard';
@@ -10,10 +10,17 @@ import { PrintableWorkOrder } from './components/PrintableWorkOrder';
 import { AdminSettings } from './components/AdminSettings';
 import { CreateUserLinkPage } from './components/CreateUserLinkPage';
 import { ScheduleCalendarView } from './components/ScheduleCalendarView';
+import { JobsMapView } from './components/JobsMapView';
 import { UserLoginModal } from './components/UserLoginModal';
 import { UserLinkLoginModal } from './components/UserLinkLoginModal';
 import { RenewCodeModal } from './components/RenewCodeModal';
 import { DownloadSourceCodeModal } from './components/DownloadSourceCodeModal';
+
+const SourceCodeDownloadPage = lazy(() =>
+  import('./components/SourceCodeDownloadPage').then((m) => ({
+    default: m.SourceCodeDownloadPage,
+  }))
+);
 import { ExpiredWarrantyModal } from './components/ExpiredWarrantyModal';
 import { DailyQueueAlarmModal } from './components/DailyQueueAlarmModal';
 import { AppointmentReminderModal } from './components/AppointmentReminderModal';
@@ -55,6 +62,7 @@ import {
   formatThirtyMinReminderText,
   formatNewJobNotification,
   formatStatusChangeNotification,
+  formatRescheduleNotification,
   addNotificationLog,
   fetchLineMessagingStatus,
   postServerAlarmAck,
@@ -71,7 +79,46 @@ import {
   syncSchedulesToServiceWorker,
 } from './services/appointmentAlarm';
 import { warrantyAlarmService } from './services/soundAlarm';
-import { ShieldAlert, AlertTriangle, KeyRound, RotateCcw, BellRing, CheckCircle, Phone, Lock } from 'lucide-react';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  auth as firebaseAuth,
+  signInWithGoogle,
+  signOutFirebase,
+} from './firebase';
+import {
+  CloudSessionContext,
+  initializeAndMergeCloudWorkspace,
+  subscribeToCloudWorkspace,
+  syncSingleJobToCloud,
+  deleteSingleJobFromCloud,
+  clearAllJobsFromCloud,
+  syncSettingsToCloud,
+  syncAccountsToCloud,
+  bindUserIdToCloudProfile,
+  forcePushAllLocalToCloud,
+  markJobDeletedTombstone,
+  isBootstrappedAdminEmail,
+  isQuotaExceededError,
+} from './services/cloudSync';
+import { APP_VERSION, APP_REVISION } from './version';
+import {
+  ShieldAlert,
+  AlertTriangle,
+  KeyRound,
+  RotateCcw,
+  BellRing,
+  CheckCircle,
+  Phone,
+  Lock,
+  ShieldCheck,
+  FileCode,
+  Download,
+  Link as LinkIcon,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  LogOut,
+} from 'lucide-react';
 
 export default function App() {
   // Helper: inspect URL parameters synchronously on initial render so shared User Links NEVER boot as Admin
@@ -156,6 +203,36 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<ViewTab>('dashboard');
   const [statusFilterForQueue, setStatusFilterForQueue] = useState<string>('all');
   const [queueSheetForQueue, setQueueSheetForQueue] = useState<'all' | 'closed'>('all');
+  const [gmpQuotaExceeded, setGmpQuotaExceeded] = useState(false);
+
+  // Firebase Cloud Database & Cross-Device Sync State
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [isFirebaseAuthReady, setIsFirebaseAuthReady] = useState(false);
+  const [cloudCtx, setCloudCtx] = useState<CloudSessionContext | null>(null);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<
+    'disconnected' | 'syncing' | 'synced' | 'error'
+  >('disconnected');
+  const [cloudErrorMsg, setCloudErrorMsg] = useState<string | null>(null);
+  const [lastCloudSyncAt, setLastCloudSyncAt] = useState<string | null>(null);
+
+  const cloudHasDataRef = useRef(false);
+  const cloudCtxRef = useRef<CloudSessionContext | null>(null);
+  cloudCtxRef.current = cloudCtx;
+  const cloudUnsubRef = useRef<(() => void) | null>(null);
+  const latestJobsRef = useRef(jobs);
+  latestJobsRef.current = jobs;
+  const latestSettingsRef = useRef(settings);
+  latestSettingsRef.current = settings;
+  const latestUsersRef = useRef(users);
+  latestUsersRef.current = users;
+  const latestAuthRef = useRef(auth);
+  latestAuthRef.current = auth;
+
+  useEffect(() => {
+    const handleQuotaExceeded = () => setGmpQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+    return () => window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+  }, []);
 
   // LINE Notification Toast state
   const [lineToast, setLineToast] = useState<{
@@ -255,9 +332,10 @@ export default function App() {
     }
   });
 
-  // Calculate jobs whose warranty has expired
+  // Calculate jobs whose warranty has expired (ignore jobs with ไม่มีประกัน / 0 days)
   const allExpiredWarrantyJobs = jobs.filter((j) => {
-    const ws = getWarrantyStatus(j.warrantyEndDate, j.warrantyDays || 30);
+    if (!j.warrantyDays || j.warrantyDays <= 0) return false;
+    const ws = getWarrantyStatus(j.warrantyEndDate, j.warrantyDays);
     return ws.status === 'expired';
   });
 
@@ -595,12 +673,22 @@ export default function App() {
         )
       : undefined;
 
-  // Helper: Clear old mock jobs + old cover/shop/category/technician defaults when a User Link starts for the first time
+  // Helper: Clear only factory mock defaults when a fresh User Link starts for the first time
+  // NEVER wipes real user data or cloud-restored data!
   const initializeFreshUserLinkEnvironment = (linkToken: string) => {
+    if (cloudHasDataRef.current || cloudCtxRef.current) {
+      return;
+    }
     const firstInitKey = `user_link_cleared_first_time_${linkToken}`;
     if (!localStorage.getItem(firstInitKey)) {
-      clearAllJobs();
-      setJobs([]);
+      const realCustomJobs = latestJobsRef.current.filter((j) => !/^job-[1-6]$/.test(j.id));
+      if (realCustomJobs.length === 0) {
+        clearAllJobs();
+        setJobs([]);
+      } else {
+        setJobs(realCustomJobs);
+        saveJobs(realCustomJobs);
+      }
       setSettings((prev) => {
         // Backup admin settings once if not yet backed up and non-empty
         if (prev.shopName && !localStorage.getItem('repair_onsite_admin_settings_backup_v1')) {
@@ -610,17 +698,30 @@ export default function App() {
         }
         const cleaned: ShopSettings = {
           ...prev,
-          coverTitle: '',
-          coverSubtitle: '',
-          shopName: '',
-          phone: '',
-          lineId: '',
-          lineUrl: '',
-          facebook: '',
-          facebookUrl: '',
-          address: '',
-          repairCategories: [],
-          technicians: [],
+          coverTitle:
+            prev.coverTitle === 'Repair Onsite Service' ? '' : prev.coverTitle,
+          coverSubtitle:
+            prev.coverSubtitle === 'ช่างหน่อยชุมแพ' ? '' : prev.coverSubtitle,
+          shopName:
+            prev.shopName === 'โปรซ่อมด่วน Onsite Service (Pro Onsite Service Thailand)'
+              ? ''
+              : prev.shopName,
+          phone: prev.phone === '089-765-4321' ? '' : prev.phone,
+          lineId: prev.lineId === '@proonsite' ? '' : prev.lineId,
+          lineUrl:
+            prev.lineUrl === 'https://line.me/ti/p/~@proonsite' ? '' : prev.lineUrl,
+          facebook:
+            prev.facebook === 'Pro Onsite Service ช่างซ่อมถึงบ้าน'
+              ? ''
+              : prev.facebook,
+          facebookUrl:
+            prev.facebookUrl === 'https://facebook.com/ProOnsiteServiceTH'
+              ? ''
+              : prev.facebookUrl,
+          address:
+            prev.address === '88/19 ถนนสุขุมวิท 71 แขวงพระโขนงเหนือ เขตวัฒนา กรุงเทพฯ 10110'
+              ? ''
+              : prev.address,
         };
         saveShopSettings(cleaned);
         return cleaned;
@@ -636,15 +737,229 @@ export default function App() {
     }
   }, []);
 
-  // Save changes to localStorage
+  const runCloudTask = useCallback(async (task: (ctx: CloudSessionContext) => Promise<void>) => {
+    const activeCtx = cloudCtxRef.current;
+    if (!activeCtx) return;
+    try {
+      setCloudSyncStatus('syncing');
+      await task(activeCtx);
+      setCloudSyncStatus('synced');
+      setCloudErrorMsg(null);
+      setLastCloudSyncAt(new Date().toLocaleTimeString('th-TH'));
+    } catch (err) {
+      console.error('Cloud sync write error:', err);
+      setCloudSyncStatus('error');
+      const msg = isQuotaExceededError(err)
+        ? 'โควต้าฐานข้อมูลฟรีวันนี้เต็มแล้ว ข้อมูลถูกบันทึกไว้ในเครื่องเรียบร้อย'
+        : 'บันทึกขึ้นคลาวด์ไม่สำเร็จชั่วคราว (ข้อมูลยังเก็บในเครื่องไว้แล้ว)';
+      setCloudErrorMsg(msg);
+    }
+  }, []);
+
+  // Firebase Authentication & Automatic Cross-Device Restore/Backup
+  useEffect(() => {
+    let active = true;
+    const unsubAuth = onAuthStateChanged(firebaseAuth, async (user) => {
+      if (!active) return;
+      setFirebaseUser(user);
+      setIsFirebaseAuthReady(true);
+
+      if (cloudUnsubRef.current) {
+        cloudUnsubRef.current();
+        cloudUnsubRef.current = null;
+      }
+
+      if (!user) {
+        setCloudCtx(null);
+        cloudCtxRef.current = null;
+        cloudHasDataRef.current = false;
+        setCloudSyncStatus('disconnected');
+        return;
+      }
+
+      setCloudSyncStatus('syncing');
+      setCloudErrorMsg(null);
+      try {
+        const curAuth = latestAuthRef.current;
+        const { ctx, snapshot, migratedCount } = await initializeAndMergeCloudWorkspace({
+          user,
+          localJobs: latestJobsRef.current,
+          localSettings: latestSettingsRef.current,
+          localUsers: latestUsersRef.current,
+          linkedUserAccount: curAuth.userId
+            ? { id: curAuth.userId, username: curAuth.userName, name: curAuth.userName }
+            : null,
+          forceAdminWorkspace:
+            curAuth.role === 'admin' || isBootstrappedAdminEmail(user.email),
+        });
+
+        if (!active) return;
+        cloudHasDataRef.current = snapshot.hasCloudData;
+        setCloudCtx(ctx);
+        cloudCtxRef.current = ctx;
+
+        if (snapshot.settings) {
+          setSettings(snapshot.settings);
+          saveShopSettings(snapshot.settings);
+        }
+        setJobs(snapshot.jobs);
+        saveJobs(snapshot.jobs);
+
+        if (ctx.isAdmin && snapshot.accounts.length > 0) {
+          setUsers(snapshot.accounts);
+          saveUsers(snapshot.accounts);
+        }
+
+        // Restore bound User ID on a fresh device automatically
+        if (
+          (snapshot.linkedUserId || snapshot.linkedUsername) &&
+          curAuth.role === 'user' &&
+          !curAuth.userId
+        ) {
+          const matchedAcc =
+            snapshot.accounts.find(
+              (a) =>
+                a.id === snapshot.linkedUserId ||
+                a.username === snapshot.linkedUsername
+            ) ||
+            latestUsersRef.current.find(
+              (a) =>
+                a.id === snapshot.linkedUserId ||
+                a.username === snapshot.linkedUsername
+            );
+          const restoredAuth: AuthSession = {
+            role: 'user',
+            userId: matchedAcc?.id || snapshot.linkedUserId,
+            userName: matchedAcc?.name || snapshot.linkedUsername || ctx.displayName,
+            userPhone: matchedAcc?.phone,
+            linkToken: matchedAcc?.linkToken,
+            expiresAt: matchedAcc?.expiresAt,
+          };
+          setAuth(restoredAuth);
+          saveCurrentAuth(restoredAuth);
+        }
+
+        // Attach live real-time listeners once authenticated
+        cloudUnsubRef.current = subscribeToCloudWorkspace(ctx, {
+          onSettingsUpdate: (cloudSettings) => {
+            setSettings(cloudSettings);
+            saveShopSettings(cloudSettings);
+            setLastCloudSyncAt(new Date().toLocaleTimeString('th-TH'));
+          },
+          onJobsUpdate: (cloudJobs) => {
+            setJobs(cloudJobs);
+            saveJobs(cloudJobs);
+            setLastCloudSyncAt(new Date().toLocaleTimeString('th-TH'));
+          },
+          onAccountsUpdate: (cloudAccounts) => {
+            if (cloudAccounts.length > 0) {
+              setUsers(cloudAccounts);
+              saveUsers(cloudAccounts);
+              setLastCloudSyncAt(new Date().toLocaleTimeString('th-TH'));
+            }
+          },
+        });
+
+        setCloudSyncStatus('synced');
+        setLastCloudSyncAt(new Date().toLocaleTimeString('th-TH'));
+        showLineToast(
+          migratedCount > 0
+            ? 'เชื่อมต่อคลาวด์ & สำรองข้อมูลเดิมแล้ว ☁️'
+            : 'ซิงค์ข้อมูลจากคลาวด์สำเร็จ ☁️',
+          `บัญชี ${user.email} · คิวงานทั้งหมด ${snapshot.jobs.length} รายการ`,
+          'success'
+        );
+      } catch (err) {
+        if (!active) return;
+        console.error('Firebase sync initialization failed:', err);
+        setCloudSyncStatus('error');
+        const msg = isQuotaExceededError(err)
+          ? 'โควต้าฐานข้อมูลฟรีวันนี้เต็มแล้ว กรุณาลองใหม่พรุ่งนี้'
+          : 'ไม่สามารถซิงค์ข้อมูลคลาวด์ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง';
+        setCloudErrorMsg(msg);
+        showLineToast('เชื่อมต่อคลาวด์ไม่สำเร็จ', msg, 'error');
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubAuth();
+      if (cloudUnsubRef.current) {
+        cloudUnsubRef.current();
+        cloudUnsubRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleGoogleCloudSignIn = async () => {
+    try {
+      setCloudSyncStatus('syncing');
+      setCloudErrorMsg(null);
+      await signInWithGoogle();
+    } catch (err: any) {
+      setCloudSyncStatus(cloudCtxRef.current ? 'synced' : 'disconnected');
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return;
+      }
+      const msg =
+        code === 'auth/popup-blocked'
+          ? 'เบราว์เซอร์บล็อกหน้าต่างล็อกอิน Google กรุณาอนุญาต Pop-up แล้วกดอีกครั้ง'
+          : 'เข้าสู่ระบบ Google ไม่สำเร็จ กรุณาลองใหม่';
+      setCloudErrorMsg(msg);
+      showLineToast('เข้าสู่ระบบ Google ไม่สำเร็จ', msg, 'error');
+    }
+  };
+
+  const handleForceCloudBackup = async () => {
+    const activeCtx = cloudCtxRef.current;
+    if (!activeCtx) {
+      await handleGoogleCloudSignIn();
+      return;
+    }
+    try {
+      setCloudSyncStatus('syncing');
+      const count = await forcePushAllLocalToCloud(activeCtx, {
+        jobs: latestJobsRef.current,
+        settings: latestSettingsRef.current,
+        users: latestUsersRef.current,
+      });
+      setCloudSyncStatus('synced');
+      setLastCloudSyncAt(new Date().toLocaleTimeString('th-TH'));
+      showLineToast(
+        'สำรองข้อมูลทั้งหมดขึ้นคลาวด์แล้ว ✅',
+        `บันทึกคิวงาน ${latestJobsRef.current.length} รายการ และการตั้งค่าร้านเรียบร้อย (${count} รายการ)`,
+        'success'
+      );
+    } catch (err) {
+      console.error('Manual cloud backup failed:', err);
+      setCloudSyncStatus('error');
+      showLineToast(
+        'สำรองข้อมูลไม่สำเร็จ',
+        isQuotaExceededError(err)
+          ? 'โควต้าฐานข้อมูลฟรีวันนี้เต็มแล้ว'
+          : 'เกิดข้อผิดพลาดระหว่างอัปโหลดข้อมูลขึ้นคลาวด์',
+        'error'
+      );
+    }
+  };
+
+  const handleCloudSignOut = async () => {
+    await signOutFirebase();
+    showLineToast('ออกจากบัญชีคลาวด์แล้ว', 'ข้อมูลในเครื่องยังคงอยู่', 'info');
+  };
+
+  // Save changes to localStorage + Cloud Firestore
   const handleSaveSettings = (newSettings: ShopSettings) => {
     setSettings(newSettings);
     saveShopSettings(newSettings);
+    void runCloudTask((ctx) => syncSettingsToCloud(ctx, newSettings));
   };
 
   const handleSaveUsers = (newUsers: UserAccount[]) => {
     setUsers(newUsers);
     saveUsers(newUsers);
+    void runCloudTask((ctx) => syncAccountsToCloud(ctx, newUsers));
   };
 
   const handleSaveJobs = (newJobs: RepairJob[]) => {
@@ -698,22 +1013,27 @@ export default function App() {
       }
     }
     handleSaveJobs(updated);
+    void runCloudTask((ctx) => syncSingleJobToCloud(ctx, job));
     setEditingJob(null);
   };
 
   const handleDeleteJob = (jobId: string) => {
     if (confirm('คุณแน่ใจหรือไม่ว่าต้องการลบรายการคิวงานนี้?')) {
+      markJobDeletedTombstone(jobId);
       const updated = jobs.filter((j) => j.id !== jobId);
       handleSaveJobs(updated);
       if (selectedJob?.id === jobId) setSelectedJob(null);
+      void runCloudTask((ctx) => deleteSingleJobFromCloud(ctx, jobId));
     }
   };
 
   const handleClearAllJobs = () => {
+    jobs.forEach((j) => markJobDeletedTombstone(j.id));
     clearAllJobs();
     setJobs([]);
     setSelectedJob(null);
     setEditingJob(null);
+    void runCloudTask((ctx) => clearAllJobsFromCloud(ctx));
     showLineToast(
       'ล้างข้อมูลเก่าเรียบร้อย 🗑️',
       'ล้างรายการคิวงานทั้งหมดออกแล้ว พร้อมเริ่มต้นรับงานใหม่จาก Q-01',
@@ -771,6 +1091,9 @@ export default function App() {
     handleSaveJobs(updated);
 
     const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
     if (selectedJob?.id === jobId && updatedJob) {
       setSelectedJob(updatedJob);
     }
@@ -844,6 +1167,9 @@ export default function App() {
 
     handleSaveJobs(updated);
     const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
     if (selectedJob?.id === jobId && updatedJob) {
       setSelectedJob(updatedJob);
     }
@@ -898,6 +1224,9 @@ export default function App() {
     });
     handleSaveJobs(updated);
     const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
     if (selectedJob?.id === jobId && updatedJob) {
       setSelectedJob(updatedJob);
     }
@@ -906,8 +1235,206 @@ export default function App() {
   const handleUpdateActualCost = (jobId: string, cost: number) => {
     const updated = jobs.map((j) => (j.id === jobId ? { ...j, actualCost: cost } : j));
     handleSaveJobs(updated);
+    const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
     if (selectedJob?.id === jobId) {
       setSelectedJob({ ...selectedJob, actualCost: cost });
+    }
+  };
+
+  const handleUpdateClosingDetails = (
+    jobId: string,
+    actualCost: number,
+    warrantyDays: number
+  ) => {
+    const cleanDays = Math.max(0, Math.floor(Number(warrantyDays) || 0));
+    const targetJob = jobs.find((j) => j.id === jobId);
+    if (!targetJob) return;
+
+    const startDate =
+      targetJob.warrantyStartDate ||
+      targetJob.closedAt ||
+      targetJob.appointmentDate ||
+      new Date().toISOString().split('T')[0];
+    const endObj = new Date(startDate);
+    endObj.setDate(endObj.getDate() + cleanDays);
+    const warrantyEndDate = endObj.toISOString().split('T')[0];
+
+    const updated = jobs.map((j) =>
+      j.id === jobId
+        ? {
+            ...j,
+            actualCost,
+            warrantyDays: cleanDays,
+            warrantyStartDate: startDate,
+            warrantyEndDate,
+          }
+        : j
+    );
+    handleSaveJobs(updated);
+    const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
+    if (selectedJob?.id === jobId && updatedJob) {
+      setSelectedJob(updatedJob);
+    }
+
+    showLineToast(
+      `อัปเดตค่าซ่อมจริง & ประกันคิว ${targetJob.queueNumber} ✅`,
+      `ค่าซ่อมจริง ฿${actualCost.toLocaleString()} • ${
+        cleanDays === 0 ? 'ไม่มีประกัน (0 วัน)' : `รับประกัน ${cleanDays} วัน (ถึง ${warrantyEndDate})`
+      }`,
+      'success'
+    );
+  };
+
+  const handleRescheduleJob = (
+    jobId: string,
+    newDate: string,
+    newTime: string,
+    reason?: string
+  ) => {
+    const targetJob = jobs.find((j) => j.id === jobId);
+    if (!targetJob) return;
+
+    const previousDate = targetJob.appointmentDate;
+    const previousTime = targetJob.appointmentTime;
+
+    const updated = jobs.map((j) => {
+      if (j.id !== jobId) return j;
+      let warrantyEndDate = j.warrantyEndDate;
+      if (j.status !== 'ซ่อมแล้ว' && j.status !== 'ปิดงาน') {
+        const base = new Date(newDate || j.loggedDate);
+        if (!isNaN(base.getTime())) {
+          base.setDate(base.getDate() + (Number(j.warrantyDays) || 0));
+          warrantyEndDate = base.toISOString().split('T')[0];
+        }
+      }
+      const noteAppend = reason
+        ? `[เลื่อนนัด ${previousDate} ${previousTime || ''} -> ${newDate} ${newTime}: ${reason}]`
+        : '';
+      const mergedNotes = noteAppend
+        ? j.notes
+          ? `${j.notes} ${noteAppend}`
+          : noteAppend
+        : j.notes;
+
+      return {
+        ...j,
+        appointmentDate: newDate,
+        appointmentTime: newTime,
+        warrantyEndDate,
+        notes: mergedNotes,
+      };
+    });
+
+    handleSaveJobs(updated);
+    const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
+    if (selectedJob?.id === jobId && updatedJob) {
+      setSelectedJob(updatedJob);
+    }
+
+    showLineToast(
+      `เปลี่ยนนัดหมายคิว ${targetJob.queueNumber} สำเร็จ 📅`,
+      `นัดใหม่: ${newDate} (${newTime})`,
+      'success'
+    );
+
+    if (
+      updatedJob &&
+      isLineConfigured(settings.lineNotify) &&
+      settings.lineNotify?.notifyOnStatusChange
+    ) {
+      const msg = formatRescheduleNotification(
+        updatedJob,
+        previousDate,
+        previousTime,
+        settings,
+        reason
+      );
+      sendLineNotification(settings.lineNotify, msg)
+        .then((res) => {
+          addNotificationLog({
+            type: 'status_change',
+            jobQueueNumber: updatedJob.queueNumber,
+            jobProduct: updatedJob.product,
+            status: updatedJob.status,
+            success: res.success,
+            message: `เลื่อนนัดคิว ${updatedJob.queueNumber} เป็น ${newDate} (${newTime})`,
+            responseMessage: res.message,
+          });
+        })
+        .catch((err) => console.error('Failed to send reschedule LINE notification', err));
+    }
+  };
+
+  const handleCancelJob = (jobId: string, reason?: string) => {
+    const targetJob = jobs.find((j) => j.id === jobId);
+    if (!targetJob) return;
+    const previousStatus = targetJob.status;
+
+    const updated = jobs.map((j) => {
+      if (j.id !== jobId) return j;
+      const cancelNote = reason ? `[ยกเลิกงาน: ${reason}]` : '';
+      const mergedNotes = cancelNote
+        ? j.notes
+          ? `${j.notes} ${cancelNote}`
+          : cancelNote
+        : j.notes;
+      return {
+        ...j,
+        status: 'ยกเลิก' as RepairStatus,
+        cancelReason: reason || j.cancelReason,
+        notes: mergedNotes,
+      };
+    });
+
+    handleSaveJobs(updated);
+    const updatedJob = updated.find((j) => j.id === jobId);
+    if (updatedJob) {
+      void runCloudTask((ctx) => syncSingleJobToCloud(ctx, updatedJob));
+    }
+    if (selectedJob?.id === jobId && updatedJob) {
+      setSelectedJob(updatedJob);
+    }
+
+    showLineToast(
+      `ยกเลิกงานคิว ${targetJob.queueNumber} แล้ว`,
+      reason ? `เหตุผล: ${reason}` : 'เปลี่ยนสถานะเป็น "ยกเลิก" เรียบร้อย',
+      'info'
+    );
+
+    if (
+      updatedJob &&
+      previousStatus !== 'ยกเลิก' &&
+      isLineConfigured(settings.lineNotify) &&
+      settings.lineNotify?.notifyOnStatusChange
+    ) {
+      const msg = formatStatusChangeNotification(
+        updatedJob,
+        previousStatus,
+        'ยกเลิก',
+        settings
+      );
+      sendLineNotification(settings.lineNotify, msg)
+        .then((res) => {
+          addNotificationLog({
+            type: 'status_change',
+            jobQueueNumber: updatedJob.queueNumber,
+            jobProduct: updatedJob.product,
+            status: 'ยกเลิก',
+            success: res.success,
+            message: `ยกเลิกงานคิว ${updatedJob.queueNumber}`,
+            responseMessage: res.message,
+          });
+        })
+        .catch((err) => console.error('Failed to send cancel job LINE notification', err));
     }
   };
 
@@ -952,6 +1479,18 @@ export default function App() {
       initializeFreshUserLinkEnvironment(user.linkToken);
     }
 
+    if (cloudCtxRef.current && user.id) {
+      void runCloudTask(async (ctx) => {
+        const updatedCtx = await bindUserIdToCloudProfile(ctx, {
+          id: user.id,
+          username: user.username || user.name,
+          name: user.name,
+        });
+        setCloudCtx(updatedCtx);
+        cloudCtxRef.current = updatedCtx;
+      });
+    }
+
     if (expiry.isExpired) {
       setShowExpiredWarning(true);
     } else {
@@ -959,8 +1498,8 @@ export default function App() {
       setIsBooting(true);
     }
 
-    // If currently on admin-only tabs (create_link), redirect to dashboard
-    if (currentTab === 'create_link') {
+    // If currently on admin-only tabs (create_link, source_code), redirect to dashboard
+    if (currentTab === 'create_link' || currentTab === 'source_code') {
       setCurrentTab('dashboard');
     }
   };
@@ -970,12 +1509,16 @@ export default function App() {
     setIsLoginModalOpen(true);
   };
 
-  // Security guard: user cannot access admin settings
+  // Security guard: user cannot access admin settings or source code
   const isAdmin = auth.role === 'admin';
 
   const handleTabChange = (tab: ViewTab) => {
-    if (!isAdmin && tab === 'create_link') {
-      alert('ขออภัย ผู้ใช้งานทั่วไปไม่สามารถเข้าถึงหน้าสร้าง link user ได้');
+    if (!isAdmin && (tab === 'create_link' || tab === 'source_code')) {
+      showLineToast(
+        'สิทธิ์ถูกจำกัดเฉพาะแอดมิน',
+        'กรุณาเข้าสู่ระบบแอดมิน (Admin) ก่อนเข้าถึงเมนูนี้',
+        'info'
+      );
       return;
     }
     setCurrentTab(tab);
@@ -983,6 +1526,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-clip bg-slate-100/70 text-slate-900 flex flex-col font-['Prompt',sans-serif]">
+      {gmpQuotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
+
       {/* Top Bar Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -999,7 +1559,7 @@ export default function App() {
         onSwitchToUser={handleSwitchToUser}
         users={users}
         onLogout={handleLogout}
-        onOpenDownloadCode={() => setIsDownloadCodeModalOpen(true)}
+        onOpenDownloadCode={() => setCurrentTab('source_code')}
         expiredWarrantyCount={allExpiredWarrantyJobs.length}
         onOpenExpiredWarrantyModal={() => setIsExpiredWarrantyModalOpen(true)}
         onRequestAdminLogin={() => setIsAdminPinModalOpen(true)}
@@ -1007,6 +1567,165 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+
+        {/* Standalone Admin Command Bar (Visible strictly AFTER Admin Login) */}
+        {isAdmin && (
+          <div className="mb-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-2xl px-4 py-3 shadow-md border border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+                  <span>แผงควบคุมแอดมิน (Admin)</span>
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                    v{APP_VERSION} ({APP_REVISION})
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 truncate">
+                  ปุ่มดาวน์โหลด Source Code แสดงเฉพาะเมื่อเข้าสู่ระบบแอดมินแล้วเท่านั้น
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              {currentTab !== 'create_link' && (
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('create_link')}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <LinkIcon className="w-3.5 h-3.5 text-blue-300" />
+                  <span>สร้าง link user</span>
+                </button>
+              )}
+
+              {currentTab !== 'source_code' ? (
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('source_code')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold border border-emerald-300/40 shadow-sm transition-all cursor-pointer active:scale-95"
+                >
+                  <FileCode className="w-4 h-4 shrink-0" />
+                  <span>ดาวน์โหลด Source Code (v{APP_VERSION})</span>
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCurrentTab('dashboard')}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <span>&larr; กลับหน้าแดชบอร์ด</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Cross-Device Cloud Sync Bar (Bind Database to User ID & Admin across phones) */}
+        {isFirebaseAuthReady && (
+          <div
+            className={`mb-4 rounded-2xl px-4 py-2.5 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+              firebaseUser
+                ? cloudSyncStatus === 'error'
+                  ? 'bg-red-50 border-red-200 text-red-900'
+                  : 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                : 'bg-blue-50/90 border-blue-200 text-blue-950'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  firebaseUser
+                    ? cloudSyncStatus === 'error'
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-emerald-600 text-white'
+                    : 'bg-blue-600 text-white'
+                }`}
+              >
+                {firebaseUser ? (
+                  <Cloud className="w-4 h-4" />
+                ) : (
+                  <CloudOff className="w-4 h-4" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold flex items-center gap-2 flex-wrap">
+                  <span>
+                    {firebaseUser
+                      ? `ซิงค์คลาวด์แล้ว: ${firebaseUser.email}`
+                      : 'สำรองและผูกฐานข้อมูลข้ามเครื่อง (Google Cloud)'}
+                  </span>
+                  {firebaseUser && cloudCtx && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/80 border border-emerald-200 text-emerald-800">
+                      {cloudCtx.isAdmin
+                        ? 'Admin Master'
+                        : `User ID: ${
+                            cloudCtx.linkedUsername ||
+                            cloudCtx.linkedUserId ||
+                            auth.userName ||
+                            cloudCtx.workspaceId
+                          }`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] opacity-80 truncate">
+                  {cloudErrorMsg
+                    ? cloudErrorMsg
+                    : firebaseUser
+                    ? `คิวงาน ${jobs.length} รายการ · การตั้งค่าและข้อมูลแอดมินซิงค์อัตโนมัติทุกเครื่อง${
+                        lastCloudSyncAt ? ` (ล่าสุด ${lastCloudSyncAt})` : ''
+                      }`
+                    : 'เข้าสู่ระบบ Google เพื่อเก็บคิวงาน การตั้งค่าร้าน และข้อมูลแอดมินไว้กับ User ID — เปลี่ยนโทรศัพท์เครื่องใหม่ข้อมูลไม่หาย'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {firebaseUser ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={cloudSyncStatus === 'syncing'}
+                    onClick={handleForceCloudBackup}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-100/70 text-emerald-900 border border-emerald-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        cloudSyncStatus === 'syncing' ? 'animate-spin' : ''
+                      }`}
+                    />
+                    <span>สำรองทันที</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCloudSignOut}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/80 hover:bg-white text-slate-700 border border-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+                    title="ออกจากบัญชี Google Cloud"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">ออกคลาวด์</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={cloudSyncStatus === 'syncing'}
+                  onClick={handleGoogleCloudSignIn}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95 disabled:opacity-60"
+                >
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>
+                    {cloudSyncStatus === 'syncing'
+                      ? 'กำลังเชื่อมต่อ...'
+                      : 'เข้าสู่ระบบ Google (ซิงค์คลาวด์)'}
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* User Link Expiration Banner (if expired or near expiry) */}
         {!isAdmin && activeUserAccount && (
@@ -1085,6 +1804,7 @@ export default function App() {
             isAdmin={isAdmin}
             onRequestAdminLogin={() => setIsAdminPinModalOpen(true)}
             onNavigateToCreateLink={() => setCurrentTab('create_link')}
+            onNavigateToSourceCode={() => setCurrentTab('source_code')}
           />
         )}
 
@@ -1098,6 +1818,8 @@ export default function App() {
             }}
             onDeleteJob={handleDeleteJob}
             onStatusChange={handleStatusChange}
+            onRescheduleJob={handleRescheduleJob}
+            onCancelJob={handleCancelJob}
             onPrintJob={(job) => setPrintingJob(job)}
             onOpenStatusPhotos={(job, status) =>
               setPhotoModalState({ jobId: job.id, initialStatus: status || job.status })
@@ -1120,12 +1842,41 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'map' && (
+          <JobsMapView
+            jobs={jobs}
+            onSelectJob={(job) => setSelectedJob(job)}
+            onOpenNewJob={() => {
+              setEditingJob(null);
+              setIsJobModalOpen(true);
+            }}
+          />
+        )}
+
         {currentTab === 'create_link' && isAdmin && (
           <CreateUserLinkPage
             users={users}
             onSaveUsers={handleSaveUsers}
             onSwitchToUser={handleSwitchToUser}
+            onOpenDownloadCode={() => setCurrentTab('source_code')}
           />
+        )}
+
+        {currentTab === 'source_code' && isAdmin && (
+          <Suspense
+            fallback={
+              <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-500">
+                กำลังโหลดแพ็กเกจ Source Code ล่าสุด...
+              </div>
+            }
+          >
+            <SourceCodeDownloadPage
+              isAdmin={isAdmin}
+              settings={settings}
+              jobs={jobs}
+              users={users}
+            />
+          </Suspense>
         )}
 
         {currentTab === 'settings' && (
@@ -1134,6 +1885,13 @@ export default function App() {
             onSaveSettings={handleSaveSettings}
             isAdmin={isAdmin}
             jobs={jobs}
+            cloudCtx={cloudCtx}
+            cloudUserEmail={firebaseUser?.email || null}
+            cloudSyncStatus={cloudSyncStatus}
+            lastCloudSyncAt={lastCloudSyncAt}
+            onGoogleSignIn={handleGoogleCloudSignIn}
+            onForceCloudBackup={handleForceCloudBackup}
+            onCloudSignOut={handleCloudSignOut}
           />
         )}
       </main>
@@ -1171,7 +1929,11 @@ export default function App() {
         job={selectedJob}
         onClose={() => setSelectedJob(null)}
         onStatusChange={handleStatusChange}
+        onRescheduleJob={handleRescheduleJob}
+        onCancelJob={handleCancelJob}
         onUpdateActualCost={handleUpdateActualCost}
+        onUpdateClosingDetails={handleUpdateClosingDetails}
+        onOpenCloseJobModal={(job) => setClosingJobTarget(job)}
         onEdit={(job) => {
           setEditingJob(job);
           setIsJobModalOpen(true);
@@ -1214,6 +1976,9 @@ export default function App() {
         settings={settings}
         onLoginAsUser={handleSwitchToUser}
         onLoginAsAdmin={handleSwitchToAdmin}
+        onGoogleSignIn={handleGoogleCloudSignIn}
+        cloudUserEmail={firebaseUser?.email || null}
+        cloudSyncing={cloudSyncStatus === 'syncing'}
       />
 
       {/* Modal: Renewal Code Entry */}
@@ -1306,6 +2071,9 @@ export default function App() {
         onRequestAdminLogin={() => {
           setIsAdminPinModalOpen(true);
         }}
+        onGoogleSignIn={handleGoogleCloudSignIn}
+        cloudUserEmail={firebaseUser?.email || null}
+        cloudSyncing={cloudSyncStatus === 'syncing'}
       />
 
       {/* Modal: Admin PIN Login (รหัสผ่าน 099-225-6601 ซ่อนรหัส) */}
@@ -1411,6 +2179,7 @@ export default function App() {
         settings={settings}
         jobs={jobs}
         users={users}
+        onOpenSourceCodePage={() => setCurrentTab('source_code')}
       />
 
       {/* Floating LINE Notification Toast */}
