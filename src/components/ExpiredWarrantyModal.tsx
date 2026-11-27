@@ -50,23 +50,21 @@ export const ExpiredWarrantyModal: React.FC<ExpiredWarrantyModalProps> = ({
 
   // Start sound & speech loop when modal opens
   useEffect(() => {
-    if (isOpen && expiredJobs.length > 0) {
-      setIsMuted(false);
-      const speech = buildSpeechText();
-      warrantyAlarmService.startAlarm(speech);
+    if (!isOpen || expiredJobs.length === 0) return;
 
-      // Pulse visual ticker
-      const interval = setInterval(() => {
-        setPulseCount((c) => c + 1);
-      }, 1000);
+    setIsMuted(false);
+    const speech = buildSpeechText();
+    warrantyAlarmService.startAlarm(speech);
 
-      return () => {
-        clearInterval(interval);
-        warrantyAlarmService.stopAlarm();
-      };
-    } else {
+    // Pulse visual ticker
+    const interval = setInterval(() => {
+      setPulseCount((c) => c + 1);
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
       warrantyAlarmService.stopAlarm();
-    }
+    };
   }, [isOpen, expiredJobs]);
 
   const handleToggleMute = () => {

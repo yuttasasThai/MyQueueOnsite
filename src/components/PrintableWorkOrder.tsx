@@ -149,24 +149,32 @@ export const PrintableWorkOrder: React.FC<PrintableWorkOrderProps> = ({
             <span>การรับประกันงานซ่อม (Warranty Terms)</span>
           </div>
           <div className="text-xs text-slate-600 space-y-1">
-            <p>
-              • ระยะเวลารับประกัน <strong>{job.warrantyDays} วัน</strong> (สิ้นสุดวันที่{' '}
-              <strong>{warranty.formattedEndDate}</strong>)
-            </p>
-            <p>
-              • สถานะปัจจุบัน:{' '}
-              <span
-                className={`font-semibold ${
-                  warranty.status === 'valid'
-                    ? 'text-emerald-700'
-                    : warranty.status === 'warning'
-                    ? 'text-amber-700'
-                    : 'text-red-700'
-                }`}
-              >
-                {warranty.label}
-              </span>
-            </p>
+            {job.warrantyDays === 0 || warranty.status === 'none' ? (
+              <p>
+                • การรับประกัน: <strong className="text-slate-800">ไม่มีประกัน (0 วัน)</strong>
+              </p>
+            ) : (
+              <>
+                <p>
+                  • ระยะเวลารับประกัน <strong>{job.warrantyDays} วัน</strong> (สิ้นสุดวันที่{' '}
+                  <strong>{warranty.formattedEndDate}</strong>)
+                </p>
+                <p>
+                  • สถานะปัจจุบัน:{' '}
+                  <span
+                    className={`font-semibold ${
+                      warranty.status === 'valid'
+                        ? 'text-emerald-700'
+                        : warranty.status === 'warning'
+                        ? 'text-amber-700'
+                        : 'text-red-700'
+                    }`}
+                  >
+                    {warranty.label}
+                  </span>
+                </p>
+              </>
+            )}
             <p className="text-[11px] text-slate-500">
               * การรับประกันครอบคลุมเฉพาะอาการและอะไหล่ที่ได้ทำการซ่อมแซมหรือเปลี่ยนตามใบแจ้งนี้
               ไม่ครอบคลุมความเสียหายจากอุบัติเหตุ ภัยธรรมชาติ หรือการดัดแปลงแก้ไขจากบุคคลอื่น

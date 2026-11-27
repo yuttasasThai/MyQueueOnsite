@@ -1,17 +1,24 @@
-// File: /src/components/JobStatusPhotosModal.tsx | Revision: Rev 17 | Version: 1.4.0 | Modified: 2026-11-15
+// File: /src/components/JobStatusPhotosModal.tsx | Revision: Rev 22 | Version: 1.5.3 | Modified: 2026-11-17
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Camera,
   ImagePlus,
+  Video,
+  Film,
   X,
-  Trash2,
-  ZoomIn,
-  Clock,
   Images,
   CheckCircle2,
+  AlertCircle,
+  Plus,
 } from 'lucide-react';
 import { RepairJob, RepairStatus, StatusPhotoItem } from '../types';
-import { filesToStatusPhotoItems, getTotalJobPhotosCount } from '../services/imageUtils';
+import {
+  filesToStatusPhotoItems,
+  getTotalJobPhotosCount,
+  isVideoMediaItem,
+} from '../services/imageUtils';
+import { deleteMediaFromStore } from '../services/mediaStorage';
+import { MediaGridCard, MediaLightboxModal } from './MediaPreviewItem';
 
 const PHOTO_STATUS_TABS: RepairStatus[] = [
   'รับงาน',
@@ -22,6 +29,8 @@ const PHOTO_STATUS_TABS: RepairStatus[] = [
   'นัดหมายต่อ',
   'ยกเลิก',
 ];
+
+const MULTI_PHOTO_RECOMMENDED_STATUSES: RepairStatus[] = ['กำลังซ่อม', 'ซ่อมแล้ว'];
 
 interface JobStatusPhotosModalProps {
   job: RepairJob | null;
@@ -38,50 +47,79 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
 }) => {
   const [activeStatus, setActiveStatus] = useState<RepairStatus>('รับงาน');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [previewPhoto, setPreviewPhoto] = useState<StatusPhotoItem | null>(null);
+  const [previewItem, setPreviewItem] = useState<StatusPhotoItem | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const videoCameraInputRef = useRef<HTMLInputElement>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (job) {
       setActiveStatus(initialStatus || job.status || 'รับงาน');
-      setPreviewPhoto(null);
+      setPreviewItem(null);
       setUploadNotice(null);
+      setUploadError(null);
     }
   }, [job?.id, initialStatus]);
 
   if (!job) return null;
 
-  const currentPhotos: StatusPhotoItem[] = job.statusPhotos?.[activeStatus] || [];
-  const totalPhotos = getTotalJobPhotosCount(job);
+  const currentItems: StatusPhotoItem[] = job.statusPhotos?.[activeStatus] || [];
+  const totalMediaCount = getTotalJobPhotosCount(job);
+  const isClosingStatus = activeStatus === 'ปิดงาน';
+  const isMultiPhotoRecommended = MULTI_PHOTO_RECOMMENDED_STATUSES.includes(activeStatus);
+
+  const photoCountInTab = currentItems.filter((item) => !isVideoMediaItem(item)).length;
+  const videoCountInTab = currentItems.filter((item) => isVideoMediaItem(item)).length;
 
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsProcessing(true);
+    setUploadError(null);
     try {
-      const newItems = await filesToStatusPhotoItems(files);
+      const newItems = await filesToStatusPhotoItems(files, {
+        allowVideo: isClosingStatus,
+      });
       if (newItems.length > 0) {
-        const updated = [...currentPhotos, ...newItems];
+        const updated = [...currentItems, ...newItems];
         onUpdateJobPhotos(job.id, activeStatus, updated);
-        setUploadNotice(`เพิ่มรูปในสถานะ "${activeStatus}" แล้ว ${newItems.length} รูป`);
-        setTimeout(() => setUploadNotice(null), 2500);
+        const addedVideos = newItems.filter((i) => isVideoMediaItem(i)).length;
+        const addedPhotos = newItems.length - addedVideos;
+        const parts: string[] = [];
+        if (addedPhotos > 0) parts.push(`${addedPhotos} รูป`);
+        if (addedVideos > 0) parts.push(`${addedVideos} วิดีโอ`);
+        setUploadNotice(`เพิ่ม${parts.join(' และ ')}ในสถานะ "${activeStatus}" แล้ว`);
+        setTimeout(() => setUploadNotice(null), 2800);
+      } else {
+        setUploadError(
+          isClosingStatus
+            ? 'กรุณาเลือกไฟล์รูปภาพหรือวิดีโอที่รองรับ'
+            : 'สถานะนี้รองรับเฉพาะไฟล์รูปภาพ (วิดีโอเพิ่มได้ในสถานะ "ปิดงาน")'
+        );
       }
-    } catch (err) {
-      console.error('Failed to process photos:', err);
+    } catch (err: any) {
+      console.error('Failed to process media:', err);
+      setUploadError(err?.message || 'ไม่สามารถบันทึกไฟล์รูปภาพ/วิดีโอได้');
     } finally {
       setIsProcessing(false);
       if (cameraInputRef.current) cameraInputRef.current.value = '';
       if (galleryInputRef.current) galleryInputRef.current.value = '';
+      if (videoCameraInputRef.current) videoCameraInputRef.current.value = '';
+      if (videoFileInputRef.current) videoFileInputRef.current.value = '';
     }
   };
 
-  const handleDeletePhoto = (photoId: string) => {
-    const updated = currentPhotos.filter((p) => p.id !== photoId);
+  const handleDeleteItem = async (target: StatusPhotoItem) => {
+    const updated = currentItems.filter((p) => p.id !== target.id);
     onUpdateJobPhotos(job.id, activeStatus, updated);
-    if (previewPhoto?.id === photoId) {
-      setPreviewPhoto(null);
+    if (previewItem?.id === target.id) {
+      setPreviewItem(null);
+    }
+    if (isVideoMediaItem(target)) {
+      await deleteMediaFromStore(target.dataUrl);
     }
   };
 
@@ -121,11 +159,11 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
                   {job.queueNumber}
                 </span>
                 <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
-                  รูปถ่าย / แนบรูปแยกตามสถานะ
+                  รูปถ่าย / วิดีโอแยกตามสถานะ
                 </h3>
               </div>
               <p className="text-xs text-slate-500 truncate mt-0.5">
-                {job.product} • ลูกค้า: {job.customer.name} (รวมทั้งหมด {totalPhotos} รูป)
+                {job.product} • ลูกค้า: {job.customer.name} (รวมทั้งหมด {totalMediaCount} ไฟล์)
               </p>
             </div>
           </div>
@@ -148,7 +186,11 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
               <button
                 key={st}
                 type="button"
-                onClick={() => setActiveStatus(st)}
+                onClick={() => {
+                  setActiveStatus(st);
+                  setUploadError(null);
+                  setUploadNotice(null);
+                }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 border cursor-pointer ${
                   isActive
                     ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
@@ -174,9 +216,9 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
           })}
         </div>
 
-        {/* Body: Upload Actions + Photo Grid */}
+        {/* Body: Upload Actions + Media Grid */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          {/* Hidden Inputs for Camera & File Picker */}
+          {/* Hidden Inputs for Photo Camera / Gallery */}
           <input
             ref={cameraInputRef}
             type="file"
@@ -194,18 +236,51 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
             onChange={(e) => handleFilesSelected(e.target.files)}
           />
 
+          {/* Hidden Inputs for Video Capture / File Picker (สถานะปิดงาน) */}
+          <input
+            ref={videoCameraInputRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => handleFilesSelected(e.target.files)}
+          />
+          <input
+            ref={videoFileInputRef}
+            type="file"
+            accept="video/*"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFilesSelected(e.target.files)}
+          />
+
           {/* Capture & Attach Buttons */}
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-800">
-                เพิ่มรูปสำหรับสถานะ: <span className="text-blue-700">&quot;{activeStatus}&quot;</span>
-              </span>
-              <span className="text-[11px] text-slate-500">
-                มีแล้ว {currentPhotos.length} รูป
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-slate-800">
+                  สถานะ: <span className="text-blue-700">&quot;{activeStatus}&quot;</span>
+                </span>
+                {isMultiPhotoRecommended && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                    เพิ่มได้ 2–3 รูป (แนะนำ)
+                  </span>
+                )}
+                {isClosingStatus && (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-300 text-[10px] font-bold">
+                    เพิ่มได้ทั้ง รูปภาพ + วิดีโอ
+                  </span>
+                )}
+              </div>
+
+              <span className="text-[11px] text-slate-500 font-mono">
+                {isClosingStatus
+                  ? `${photoCountInTab} รูป • ${videoCountInTab} วิดีโอ`
+                  : `มีแล้ว ${photoCountInTab} รูป`}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={isProcessing}
@@ -213,7 +288,13 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
                 className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
               >
                 <Camera className="w-4 h-4" />
-                <span>{isProcessing ? 'กำลังประมวลผลรูป...' : 'ถ่ายรูปหน้างาน (เปิดกล้อง)'}</span>
+                <span>
+                  {isProcessing
+                    ? 'กำลังประมวลผลไฟล์...'
+                    : photoCountInTab > 0
+                    ? `ถ่ายรูปเพิ่ม (รูปที่ ${photoCountInTab + 1})`
+                    : 'ถ่ายรูปหน้างาน (เปิดกล้อง)'}
+                </span>
               </button>
 
               <button
@@ -223,9 +304,38 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
                 className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
               >
                 <ImagePlus className="w-4 h-4" />
-                <span>แนบรูปภาพจากเครื่อง / คลังภาพ</span>
+                <span>
+                  {isMultiPhotoRecommended
+                    ? 'แนบหลายรูปพร้อมกัน (2–3 รูป)'
+                    : 'แนบรูปภาพจากเครื่อง / คลังภาพ'}
+                </span>
               </button>
             </div>
+
+            {/* Extra Video Buttons specifically for 'ปิดงาน' */}
+            {isClosingStatus && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-200/80">
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => videoCameraInputRef.current?.click()}
+                  className="py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Video className="w-4 h-4" />
+                  <span>{isProcessing ? 'กำลังบันทึกวิดีโอ...' : 'ถ่ายวิดีโอปิดงาน'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => videoFileInputRef.current?.click()}
+                  className="py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Film className="w-4 h-4" />
+                  <span>แนบวิดีโอจากเครื่อง</span>
+                </button>
+              </div>
+            )}
 
             {uploadNotice && (
               <div className="p-2 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
@@ -233,68 +343,79 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
                 <span>{uploadNotice}</span>
               </div>
             )}
+
+            {uploadError && (
+              <div className="p-2 rounded-lg bg-rose-100 border border-rose-300 text-rose-900 text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-rose-700 shrink-0" />
+                <span>{uploadError}</span>
+              </div>
+            )}
           </div>
 
-          {/* Photos Grid for Active Status */}
-          {currentPhotos.length === 0 ? (
+          {/* Interactive 3-Photo Slot Grid for กำลังซ่อม / ซ่อมแล้ว */}
+          {isMultiPhotoRecommended ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {currentItems.map((item, index) => (
+                <MediaGridCard
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onPreview={setPreviewItem}
+                  onDelete={handleDeleteItem}
+                />
+              ))}
+
+              {/* Show placeholder slots up to 3 photos (and always keep 1 quick "+ เพิ่มรูป" card if < 5) */}
+              {Array.from({
+                length: Math.max(
+                  currentItems.length < 3 ? 3 - currentItems.length : 1,
+                  0
+                ),
+              }).map((_, slotOffset) => {
+                const slotNum = currentItems.length + slotOffset + 1;
+                if (slotNum > 6) return null;
+                return (
+                  <button
+                    key={`slot-${slotNum}`}
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="aspect-[4/3] rounded-xl border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/60 bg-slate-50/70 flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-blue-700 transition-all cursor-pointer p-2"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-2xs">
+                      <Plus className="w-4 h-4" />
+                    </div>
+                    <span className="text-[11px] font-bold">
+                      {slotNum <= 3 ? `ถ่าย/เพิ่มรูปที่ ${slotNum}` : 'เพิ่มรูปอีก'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : currentItems.length === 0 ? (
             <div className="py-10 px-4 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
               <Camera className="w-10 h-10 text-slate-300 mx-auto mb-2" />
               <p className="text-xs sm:text-sm font-semibold text-slate-600">
-                ยังไม่มีรูปภาพในสถานะ &quot;{activeStatus}&quot;
+                {isClosingStatus
+                  ? 'ยังไม่มีรูปภาพหรือวิดีโอในสถานะ "ปิดงาน"'
+                  : `ยังไม่มีรูปภาพในสถานะ "${activeStatus}"`}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                กดปุ่ม &quot;ถ่ายรูปหน้างาน&quot; หรือ &quot;แนบรูปภาพจากเครื่อง&quot; ด้านบนเพื่อบันทึกรูปเฉพาะคิว {job.queueNumber}
+                {isClosingStatus
+                  ? 'กดปุ่มด้านบนเพื่อถ่าย/แนบทั้งรูปภาพและวิดีโอตอนปิดงาน'
+                  : `กดปุ่ม "ถ่ายรูปหน้างาน" หรือ "แนบรูปภาพจากเครื่อง" ด้านบนเพื่อบันทึกรูปเฉพาะคิว ${job.queueNumber}`}
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {currentPhotos.map((photo, index) => (
-                <div
-                  key={photo.id}
-                  className="group relative rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shadow-2xs"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setPreviewPhoto(photo)}
-                    className="block w-full aspect-[4/3] overflow-hidden cursor-pointer focus:outline-none"
-                    title="กดเพื่อดูรูปขนาดใหญ่"
-                  >
-                    <img
-                      src={photo.dataUrl}
-                      alt={`${job.queueNumber} ${activeStatus} ${index + 1}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                  </button>
-
-                  {/* Top-right Actions */}
-                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewPhoto(photo)}
-                      className="p-1.5 rounded-lg bg-slate-900/70 hover:bg-slate-900 text-white transition-colors cursor-pointer"
-                      title="ขยายดูรูป"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePhoto(photo.id)}
-                      className="p-1.5 rounded-lg bg-red-600/85 hover:bg-red-700 text-white transition-colors cursor-pointer"
-                      title="ลบรูปนี้"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Bottom Timestamp */}
-                  <div className="px-2 py-1 bg-white border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
-                    <span className="font-mono font-bold text-slate-700">#{index + 1}</span>
-                    <span className="inline-flex items-center gap-1 truncate">
-                      <Clock className="w-2.5 h-2.5 shrink-0" />
-                      {formatTimeLabel(photo.createdAt)}
-                    </span>
-                  </div>
-                </div>
+              {currentItems.map((item, index) => (
+                <MediaGridCard
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onPreview={setPreviewItem}
+                  onDelete={handleDeleteItem}
+                />
               ))}
             </div>
           )}
@@ -303,7 +424,7 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
         {/* Footer */}
         <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-500">
-            รูปถูกจัดเก็บแยกตามคิวและสถานะเรียบร้อยแล้ว (ไม่แสดงรกในตารางคิวงาน)
+            สื่อถูกจัดเก็บแยกตามคิวและสถานะเรียบร้อยแล้ว (ไม่แสดงรกในตารางคิวงาน)
           </span>
           <button
             type="button"
@@ -315,32 +436,16 @@ export const JobStatusPhotosModal: React.FC<JobStatusPhotosModalProps> = ({
         </div>
       </div>
 
-      {/* Fullscreen Image Lightbox */}
-      {previewPhoto && (
-        <div
-          className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setPreviewPhoto(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
-            <button
-              type="button"
-              onClick={() => setPreviewPhoto(null)}
-              className="absolute -top-10 right-0 p-2 text-white hover:text-slate-300 cursor-pointer"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <img
-              src={previewPhoto.dataUrl}
-              alt="ขยายรูปภาพ"
-              className="max-w-full max-h-[82vh] rounded-xl object-contain shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <div className="mt-2 text-xs text-slate-300 font-mono">
-              คิว {job.queueNumber} • สถานะ &quot;{activeStatus}&quot; • {formatTimeLabel(previewPhoto.createdAt)}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Fullscreen Image / Video Lightbox */}
+      <MediaLightboxModal
+        item={previewItem}
+        caption={
+          previewItem
+            ? `คิว ${job.queueNumber} • สถานะ "${activeStatus}" • ${formatTimeLabel(previewItem.createdAt)}`
+            : undefined
+        }
+        onClose={() => setPreviewItem(null)}
+      />
     </div>
   );
 };

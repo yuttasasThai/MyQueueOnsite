@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyRound, User, Lock, X, AlertCircle, ShieldCheck } from 'lucide-react';
+import { KeyRound, User, Lock, X, AlertCircle, ShieldCheck, Cloud, CheckCircle2 } from 'lucide-react';
 import { UserAccount, ShopSettings } from '../types';
 
 interface UserLoginModalProps {
@@ -9,6 +9,9 @@ interface UserLoginModalProps {
   settings: ShopSettings;
   onLoginAsUser: (user: UserAccount) => void;
   onLoginAsAdmin: () => void;
+  onGoogleSignIn?: () => Promise<void> | void;
+  cloudUserEmail?: string | null;
+  cloudSyncing?: boolean;
 }
 
 export const UserLoginModal: React.FC<UserLoginModalProps> = ({
@@ -18,6 +21,9 @@ export const UserLoginModal: React.FC<UserLoginModalProps> = ({
   settings,
   onLoginAsUser,
   onLoginAsAdmin,
+  onGoogleSignIn,
+  cloudUserEmail,
+  cloudSyncing = false,
 }) => {
   const [loginType, setLoginType] = useState<'user' | 'admin'>('user');
   const [username, setUsername] = useState('');
@@ -195,6 +201,37 @@ export const UserLoginModal: React.FC<UserLoginModalProps> = ({
               เข้าสู่ระบบแอดมิน
             </button>
           </form>
+        )}
+
+        {onGoogleSignIn && (
+          <div className="pt-3 border-t border-slate-100 space-y-2">
+            <div className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5">
+              <Cloud className="w-3.5 h-3.5 text-blue-600" />
+              <span>ซิงค์ข้อมูลข้ามเครื่อง (เปลี่ยนโทรศัพท์ข้อมูลไม่หาย)</span>
+            </div>
+            {cloudUserEmail ? (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 truncate font-medium">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="truncate">เชื่อมต่อแล้ว: {cloudUserEmail}</span>
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={cloudSyncing}
+                onClick={() => onGoogleSignIn()}
+                className="w-full py-2.5 px-3 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                <Cloud className="w-4 h-4 text-blue-600" />
+                <span>
+                  {cloudSyncing
+                    ? 'กำลังเชื่อมต่อบัญชี Google...'
+                    : 'เข้าสู่ระบบ Google เพื่อกู้คืน/ซิงค์ข้อมูล'}
+                </span>
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

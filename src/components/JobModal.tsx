@@ -637,11 +637,15 @@ export const JobModal: React.FC<JobModalProps> = ({
                 onChange={(e) => setWarrantyDays(Number(e.target.value))}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
               >
+                <option value={0}>ไม่มีประกัน (0 วัน)</option>
                 <option value={30}>30 วัน (1 เดือน)</option>
                 <option value={60}>60 วัน (2 เดือน)</option>
                 <option value={90}>90 วัน (3 เดือน)</option>
                 <option value={180}>180 วัน (6 เดือน)</option>
                 <option value={365}>365 วัน (1 ปี)</option>
+                {![0, 30, 60, 90, 180, 365].includes(warrantyDays) && (
+                  <option value={warrantyDays}>{warrantyDays} วัน (กำหนดเอง)</option>
+                )}
               </select>
             </div>
           </div>

@@ -1,4 +1,4 @@
-// File: /src/components/CloseJobModal.tsx | Revision: Rev 17 | Version: 1.4.0 | Modified: 2026-11-15
+// File: /src/components/CloseJobModal.tsx | Revision: Rev 22 | Version: 1.5.3 | Modified: 2026-11-17
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Award,
@@ -8,12 +8,15 @@ import {
   Save,
   Camera,
   ImagePlus,
-  Trash2,
+  Video,
+  Film,
   Calendar,
   AlertCircle,
 } from 'lucide-react';
 import { RepairJob, StatusPhotoItem } from '../types';
-import { filesToStatusPhotoItems } from '../services/imageUtils';
+import { filesToStatusPhotoItems, isVideoMediaItem } from '../services/imageUtils';
+import { deleteMediaFromStore } from '../services/mediaStorage';
+import { MediaGridCard, MediaLightboxModal } from './MediaPreviewItem';
 
 export interface CloseJobPayload {
   actualCost: number;
@@ -49,11 +52,14 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
   const [warrantyDaysInput, setWarrantyDaysInput] = useState<number>(90);
   const [notesInput, setNotesInput] = useState<string>('');
   const [closingPhotos, setClosingPhotos] = useState<StatusPhotoItem[]>([]);
-  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [isProcessingMedia, setIsProcessingMedia] = useState(false);
+  const [previewItem, setPreviewItem] = useState<StatusPhotoItem | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
+  const videoCameraRef = useRef<HTMLInputElement>(null);
+  const videoFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (job) {
@@ -67,6 +73,7 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
       setWarrantyDaysInput(typeof job.warrantyDays === 'number' ? job.warrantyDays : 90);
       setNotesInput(job.notes || '');
       setClosingPhotos([]);
+      setPreviewItem(null);
       setErrorMsg(null);
     }
   }, [job?.id]);
@@ -74,6 +81,10 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
   if (!job) return null;
 
   const todayStr = new Date().toISOString().split('T')[0];
+  const effectiveStartDate =
+    job.status === 'ปิดงาน' && job.warrantyStartDate ? job.warrantyStartDate : todayStr;
+  const effectiveClosedAt =
+    job.status === 'ปิดงาน' && job.closedAt ? job.closedAt : todayStr;
 
   const calculateEndDate = (startDateStr: string, days: number) => {
     const d = new Date(startDateStr);
@@ -81,20 +92,38 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
     return d.toISOString().split('T')[0];
   };
 
-  const calculatedEndDate = calculateEndDate(todayStr, warrantyDaysInput);
+  const calculatedEndDate = calculateEndDate(effectiveStartDate, warrantyDaysInput);
+  const photoCount = closingPhotos.filter((i) => !isVideoMediaItem(i)).length;
+  const videoCount = closingPhotos.filter((i) => isVideoMediaItem(i)).length;
 
-  const handlePhotoFiles = async (files: FileList | null) => {
+  const handleMediaFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setIsProcessingPhoto(true);
+    setIsProcessingMedia(true);
+    setErrorMsg(null);
     try {
-      const items = await filesToStatusPhotoItems(files);
-      setClosingPhotos((prev) => [...prev, ...items]);
-    } catch (err) {
-      console.error('Failed to load closing photos', err);
+      const items = await filesToStatusPhotoItems(files, { allowVideo: true });
+      if (items.length > 0) {
+        setClosingPhotos((prev) => [...prev, ...items]);
+      }
+    } catch (err: any) {
+      console.error('Failed to load closing media', err);
+      setErrorMsg(err?.message || 'ไม่สามารถแนบไฟล์รูป/วิดีโอได้');
     } finally {
-      setIsProcessingPhoto(false);
+      setIsProcessingMedia(false);
       if (cameraRef.current) cameraRef.current.value = '';
       if (galleryRef.current) galleryRef.current.value = '';
+      if (videoCameraRef.current) videoCameraRef.current.value = '';
+      if (videoFileRef.current) videoFileRef.current.value = '';
+    }
+  };
+
+  const handleRemoveDraftItem = async (item: StatusPhotoItem) => {
+    setClosingPhotos((prev) => prev.filter((p) => p.id !== item.id));
+    if (previewItem?.id === item.id) {
+      setPreviewItem(null);
+    }
+    if (isVideoMediaItem(item)) {
+      await deleteMediaFromStore(item.dataUrl);
     }
   };
 
@@ -111,9 +140,9 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
     onConfirmCloseJob(job.id, {
       actualCost: Number(actualCostInput),
       warrantyDays: cleanDays,
-      warrantyStartDate: todayStr,
-      warrantyEndDate: calculateEndDate(todayStr, cleanDays),
-      closedAt: todayStr,
+      warrantyStartDate: effectiveStartDate,
+      warrantyEndDate: calculateEndDate(effectiveStartDate, cleanDays),
+      closedAt: effectiveClosedAt,
       closingPhotos,
       notes: notesInput.trim() || undefined,
     });
@@ -196,15 +225,53 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
             />
           </div>
 
-          {/* 2. ระยะประกันงานซ่อม */}
+          {/* 2. ระบุการประกันงานซ่อม */}
           <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2.5">
-            <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-blue-600" />
-              <span>ระยะรับประกันงานซ่อม (วัน) *</span>
-            </label>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-blue-600" />
+                <span>ระบุการประกันงานซ่อม *</span>
+              </label>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  warrantyDaysInput === 0
+                    ? 'bg-slate-200 text-slate-700'
+                    : 'bg-blue-100 text-blue-800'
+                }`}
+              >
+                {warrantyDaysInput === 0 ? 'ไม่มีประกัน' : `รับประกัน ${warrantyDaysInput} วัน`}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setWarrantyDaysInput(0)}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  warrantyDaysInput === 0
+                    ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                ไม่มีประกัน (0 วัน)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (warrantyDaysInput === 0) setWarrantyDaysInput(90);
+                }}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  warrantyDaysInput > 0
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-blue-50'
+                }`}
+              >
+                มีระยะประกัน
+              </button>
+            </div>
 
             <div className="grid grid-cols-3 gap-1.5">
-              {WARRANTY_PRESETS.map((preset) => {
+              {WARRANTY_PRESETS.filter((p) => p.days > 0).map((preset) => {
                 const isSelected = Number(warrantyDaysInput) === preset.days;
                 return (
                   <button
@@ -224,7 +291,7 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 pt-1">
-              <span className="text-xs text-slate-600 whitespace-nowrap">ระบุจำนวนวันเอง:</span>
+              <span className="text-xs text-slate-600 whitespace-nowrap">ระบุระยะประกันเอง:</span>
               <input
                 type="number"
                 min="0"
@@ -233,13 +300,13 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
                 onChange={(e) => setWarrantyDaysInput(Math.max(0, Number(e.target.value) || 0))}
                 className="w-24 px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
               />
-              <span className="text-xs text-slate-600">วัน</span>
+              <span className="text-xs text-slate-600">วัน (ใส่ 0 = ไม่มีประกัน)</span>
             </div>
 
             <div className="p-2 rounded-lg bg-white border border-blue-100 text-[11px] text-slate-700 flex flex-wrap items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                เริ่มประกัน: <strong className="font-mono">{todayStr}</strong>
+                เริ่มประกัน: <strong className="font-mono">{warrantyDaysInput === 0 ? '-' : todayStr}</strong>
               </span>
               <span>
                 สิ้นสุดประกัน:{' '}
@@ -250,14 +317,14 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
             </div>
           </div>
 
-          {/* 3. ถ่ายรูป / แนบรูปตอนปิดงาน (ถ้ามี) */}
+          {/* 3. ถ่ายรูป / วิดีโอตอนปิดงาน (ถ้ามี) */}
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-800">
-                รูปถ่ายหลังซ่อม / ปิดงาน (ถ้ามี)
+                รูปถ่าย / วิดีโอหลังซ่อมตอนปิดงาน (ถ้ามี)
               </span>
-              <span className="text-[11px] text-slate-500">
-                แนบแล้ว {closingPhotos.length} รูป
+              <span className="text-[11px] text-slate-500 font-mono">
+                แนบแล้ว {photoCount} รูป • {videoCount} วิดีโอ
               </span>
             </div>
 
@@ -267,7 +334,7 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={(e) => handlePhotoFiles(e.target.files)}
+              onChange={(e) => handleMediaFiles(e.target.files)}
             />
             <input
               ref={galleryRef}
@@ -275,48 +342,81 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
               accept="image/*"
               multiple
               className="hidden"
-              onChange={(e) => handlePhotoFiles(e.target.files)}
+              onChange={(e) => handleMediaFiles(e.target.files)}
+            />
+            <input
+              ref={videoCameraRef}
+              type="file"
+              accept="video/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => handleMediaFiles(e.target.files)}
+            />
+            <input
+              ref={videoFileRef}
+              type="file"
+              accept="video/*"
+              multiple
+              className="hidden"
+              onChange={(e) => handleMediaFiles(e.target.files)}
             />
 
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                disabled={isProcessingPhoto}
+                disabled={isProcessingMedia}
                 onClick={() => cameraRef.current?.click()}
-                className="py-2 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                className="py-2 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Camera className="w-3.5 h-3.5 text-blue-600" />
                 <span>ถ่ายรูปปิดงาน</span>
               </button>
               <button
                 type="button"
-                disabled={isProcessingPhoto}
+                disabled={isProcessingMedia}
                 onClick={() => galleryRef.current?.click()}
-                className="py-2 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                className="py-2 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <ImagePlus className="w-3.5 h-3.5 text-emerald-600" />
                 <span>แนบรูปภาพ</span>
               </button>
+              <button
+                type="button"
+                disabled={isProcessingMedia}
+                onClick={() => videoCameraRef.current?.click()}
+                className="py-2 px-3 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-300 text-purple-800 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Video className="w-3.5 h-3.5 text-purple-600" />
+                <span>ถ่ายวิดีโอปิดงาน</span>
+              </button>
+              <button
+                type="button"
+                disabled={isProcessingMedia}
+                onClick={() => videoFileRef.current?.click()}
+                className="py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Film className="w-3.5 h-3.5 text-indigo-600" />
+                <span>แนบวิดีโอ</span>
+              </button>
             </div>
 
+            {isProcessingMedia && (
+              <div className="text-[11px] text-purple-700 font-semibold text-center py-1">
+                กำลังประมวลผลไฟล์รูปภาพ / วิดีโอ...
+              </div>
+            )}
+
             {closingPhotos.length > 0 && (
-              <div className="grid grid-cols-4 gap-2 pt-1">
-                {closingPhotos.map((p) => (
-                  <div
-                    key={p.id}
-                    className="relative aspect-square rounded-lg overflow-hidden border border-slate-200"
-                  >
-                    <img src={p.dataUrl} alt="closing" className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setClosingPhotos((prev) => prev.filter((item) => item.id !== p.id))
-                      }
-                      className="absolute top-1 right-1 p-1 rounded bg-red-600 text-white cursor-pointer"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
+                {closingPhotos.map((item, idx) => (
+                  <MediaGridCard
+                    key={item.id}
+                    item={item}
+                    index={idx}
+                    compact
+                    onPreview={setPreviewItem}
+                    onDelete={handleRemoveDraftItem}
+                  />
                 ))}
               </div>
             )}
@@ -347,7 +447,8 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md flex items-center gap-1.5 transition-colors cursor-pointer"
+              disabled={isProcessingMedia}
+              className="px-5 py-2.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl shadow-md flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Save className="w-4 h-4" />
               <span>บันทึกปิดงาน &amp; ลงตารางสรุป Excel</span>
@@ -355,6 +456,13 @@ export const CloseJobModal: React.FC<CloseJobModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Preview Image / Video Lightbox */}
+      <MediaLightboxModal
+        item={previewItem}
+        caption={previewItem ? `ตัวอย่างไฟล์ปิดงาน คิว ${job.queueNumber}` : undefined}
+        onClose={() => setPreviewItem(null)}
+      />
     </div>
   );
 };

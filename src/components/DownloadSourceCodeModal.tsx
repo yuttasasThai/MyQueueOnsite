@@ -25,6 +25,7 @@ interface DownloadSourceCodeModalProps {
   settings: ShopSettings;
   jobs: RepairJob[];
   users: UserAccount[];
+  onOpenSourceCodePage?: () => void;
 }
 
 export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = ({
@@ -34,6 +35,7 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
   settings,
   jobs,
   users,
+  onOpenSourceCodePage,
 }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
@@ -95,39 +97,27 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
     URL.revokeObjectURL(url);
   };
 
-  // Download complete full source code containing real src/, public/, api/ and config files
-  const handleDownloadFullSourceCode = async () => {
+  const zipFilename = `onsite-repair-service-v${APP_VERSION}-full.zip`;
+  const directZipUrl = `/api/download-source-zip?dl=1`;
+
+  // Download complete full source code directly in browser (zero network dependency)
+  const handleDownloadFullSourceCode = async (includeMediaAssets = true) => {
     try {
       setIsZipping(true);
       setDownloadError('');
 
-      const res = await fetch('/api/download-source-zip', { cache: 'no-store' });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('zip')) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `onsite-repair-service-v${APP_VERSION}-source-code.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        setIsZipping(false);
-        setDownloadSuccess(true);
-        setTimeout(() => setDownloadSuccess(false), 5000);
-        return;
-      }
-
-      setIsZipping(false);
-      setDownloadError(
-        'ไม่สามารถดาวน์โหลดไฟล์ ZIP จากโดเมนนี้ได้ (กรุณากดดาวน์โหลด Source Code จากหน้าพรีวิวหลักของระบบ)'
+      const { buildClientSourceZip, triggerFileDownload } = await import(
+        '../services/sourcePackager'
       );
-    } catch (err) {
-      console.error('Failed to download source zip:', err);
+      const res = await buildClientSourceZip({ includeMediaAssets });
+      triggerFileDownload(res.blob, res.filename);
+      setIsZipping(false);
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 6000);
+    } catch (err: any) {
       setIsZipping(false);
       setDownloadError(
-        'เกิดข้อผิดพลาดในการเชื่อมต่อเพื่อดาวน์โหลดไฟล์ ZIP กรุณาลองใหม่อีกครั้ง'
+        `ไม่สามารถสร้างไฟล์ ZIP ได้ (${err?.message || 'Unknown error'}) กรุณาลองกดปุ่ม Direct Link ด้านล่าง`
       );
     }
   };
@@ -222,7 +212,7 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
         <div className="space-y-3 pt-1">
           {/* Main Download Button */}
           <button
-            onClick={handleDownloadFullSourceCode}
+            onClick={() => handleDownloadFullSourceCode(true)}
             disabled={isZipping}
             className="w-full p-4 rounded-2xl border-2 border-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50/70 hover:from-blue-100 hover:to-indigo-100/90 text-left transition-all flex items-center justify-between group cursor-pointer shadow-xs"
           >
@@ -234,11 +224,11 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
                 <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                   <span>ดาวน์โหลด Full Source Code (.zip)</span>
                   <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded font-sans">
-                    มี src ครบ
+                    สร้างในเบราว์เซอร์ 100%
                   </span>
                 </h4>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  ไฟล์โค้ดจริงครบถ้วนทั้งโปรเจกต์ โฟลเดอร์ src, public และไฟล์คอนฟิก
+                  รวมไฟล์โค้ดล่าสุด v{APP_VERSION} ครบทุกโฟลเดอร์ (ไม่ต้องพึ่ง Server API)
                 </p>
               </div>
             </div>
@@ -247,6 +237,32 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
               <span>{isZipping ? 'กำลังบีบอัด...' : 'ดาวน์โหลด ZIP'}</span>
             </div>
           </button>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={isZipping}
+              onClick={() => handleDownloadFullSourceCode(false)}
+              className="py-2.5 px-3 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              <span>โหลดเฉพาะโค้ด (~220 KB)</span>
+            </button>
+
+            {onOpenSourceCodePage && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSourceCodePage();
+                }}
+                className="py-2.5 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <FileCode className="w-3.5 h-3.5 shrink-0" />
+                <span>เปิดหน้าตรวจสอบไฟล์ล่าสุด</span>
+              </button>
+            )}
+          </div>
 
           {/* Database Only Download */}
           <button
@@ -273,8 +289,18 @@ export const DownloadSourceCodeModal: React.FC<DownloadSourceCodeModalProps> = (
         </div>
 
         {downloadError && (
-          <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-2xl text-xs leading-relaxed">
-            {downloadError}
+          <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 rounded-2xl text-xs leading-relaxed space-y-2">
+            <div>{downloadError}</div>
+            <a
+              href={directZipUrl}
+              download={zipFilename}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-800 text-white font-bold text-[11px] transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>กดที่นี่เพื่อดาวน์โหลดไฟล์ ZIP โดยตรง</span>
+            </a>
           </div>
         )}
 

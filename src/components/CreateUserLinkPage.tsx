@@ -23,8 +23,10 @@ import {
   X,
   Share2,
   MessageCircle,
+  Download,
 } from 'lucide-react';
 import { UserAccount, RenewalCode } from '../types';
+import { APP_VERSION } from '../version';
 import {
   buildUserLink,
   buildAdminLink,
@@ -37,12 +39,14 @@ interface CreateUserLinkPageProps {
   users: UserAccount[];
   onSaveUsers: (newUsers: UserAccount[]) => void;
   onSwitchToUser: (user: UserAccount) => void;
+  onOpenDownloadCode?: () => void;
 }
 
 export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
   users,
   onSaveUsers,
   onSwitchToUser,
+  onOpenDownloadCode,
 }) => {
   // Form State
   const [name, setName] = useState('');
@@ -228,7 +232,17 @@ export const CreateUserLinkPage: React.FC<CreateUserLinkPageProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {onOpenDownloadCode && (
+              <button
+                type="button"
+                onClick={onOpenDownloadCode}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold border border-blue-400/50 shadow-md transition-all cursor-pointer whitespace-nowrap"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>ดาวน์โหลด Source Code (v{APP_VERSION})</span>
+              </button>
+            )}
             <div className="bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-700 text-center">
               <span className="text-[11px] text-slate-400 block font-medium">Link User ทั้งหมด</span>
               <span className="text-lg font-black text-white font-mono">{users.length} บัญชี</span>

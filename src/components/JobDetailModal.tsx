@@ -1,4 +1,4 @@
-// File: /src/components/JobDetailModal.tsx | Revision: Rev 18 | Version: 1.4.1 | Modified: 2026-11-15
+// File: /src/components/JobDetailModal.tsx | Revision: Rev 22 | Version: 1.5.3 | Modified: 2026-11-17
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -7,6 +7,7 @@ import {
   Facebook,
   Calendar,
   CalendarPlus,
+  CalendarClock,
   ShieldCheck,
   ShieldAlert,
   ShieldX,
@@ -24,16 +25,24 @@ import {
   Shield,
   Camera,
   Images,
+  Ban,
+  ZoomIn,
+  Play,
+  Film,
+  DollarSign,
+  Award,
 } from 'lucide-react';
-import { RepairJob, RepairStatus, ShopSettings } from '../types';
+import { RepairJob, RepairStatus, ShopSettings, StatusPhotoItem } from '../types';
 import { getWarrantyStatus } from '../services/storage';
-import { getTotalJobPhotosCount } from '../services/imageUtils';
+import { getTotalJobPhotosCount, isVideoMediaItem } from '../services/imageUtils';
 import { downloadAppointmentIcsAlarm } from '../services/appointmentAlarm';
 import {
   StatusStepperIcons,
   getNextForwardStatus,
   isForwardTransitionAllowed,
 } from './StatusStepperIcons';
+import { RescheduleJobModal, CancelJobModal } from './StatusActionModals';
+import { MediaLightboxModal } from './MediaPreviewItem';
 import {
   sendLineNotification,
   getActiveLineChannelToken,
@@ -52,11 +61,23 @@ const ALL_STATUSES: RepairStatus[] = [
   'ยกเลิก',
 ];
 
+const WARRANTY_PRESETS = [
+  { label: '30 วัน', days: 30 },
+  { label: '60 วัน', days: 60 },
+  { label: '90 วัน', days: 90 },
+  { label: '180 วัน', days: 180 },
+  { label: '1 ปี (365)', days: 365 },
+];
+
 interface JobDetailModalProps {
   job: RepairJob | null;
   onClose: () => void;
   onStatusChange: (jobId: string, status: RepairStatus, allowOverride?: boolean) => void;
+  onRescheduleJob: (jobId: string, newDate: string, newTime: string, reason?: string) => void;
+  onCancelJob: (jobId: string, reason?: string) => void;
   onUpdateActualCost: (jobId: string, actualCost: number) => void;
+  onUpdateClosingDetails: (jobId: string, actualCost: number, warrantyDays: number) => void;
+  onOpenCloseJobModal: (job: RepairJob) => void;
   onEdit: (job: RepairJob) => void;
   onPrint: (job: RepairJob) => void;
   onOpenStatusPhotos: (job: RepairJob, status?: RepairStatus) => void;
@@ -68,7 +89,11 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   job,
   onClose,
   onStatusChange,
+  onRescheduleJob,
+  onCancelJob,
   onUpdateActualCost,
+  onUpdateClosingDetails,
+  onOpenCloseJobModal,
   onEdit,
   onPrint,
   onOpenStatusPhotos,
@@ -76,11 +101,24 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   isAdmin,
 }) => {
   const [actualCostInput, setActualCostInput] = useState<string>('');
+  const [warrantyDaysInput, setWarrantyDaysInput] = useState<number>(90);
   const [costSaved, setCostSaved] = useState(false);
+  const [closingSaved, setClosingSaved] = useState(false);
 
   // Explicit edit mode states
   const [isEditingStatus, setIsEditingStatus] = useState(false);
   const [draftEditStatus, setDraftEditStatus] = useState<RepairStatus>('รับงาน');
+
+  // Inline status media preview below status icons
+  const [mediaFilterStatus, setMediaFilterStatus] = useState<'all' | RepairStatus>('all');
+  const [previewMediaEntry, setPreviewMediaEntry] = useState<{
+    item: StatusPhotoItem;
+    status: RepairStatus;
+  } | null>(null);
+
+  // Reschedule & Cancel modal states
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
 
   // LINE notification states
   const [isSendingLine, setIsSendingLine] = useState(false);
@@ -89,17 +127,40 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   useEffect(() => {
     if (job) {
-      setActualCostInput(job.actualCost !== null ? String(job.actualCost) : '');
+      setActualCostInput(
+        job.actualCost !== null
+          ? String(job.actualCost)
+          : job.status === 'ปิดงาน' && job.estimatedCost > 0
+          ? String(job.estimatedCost)
+          : ''
+      );
+      setWarrantyDaysInput(typeof job.warrantyDays === 'number' ? job.warrantyDays : 90);
       setIsEditingStatus(false);
       setDraftEditStatus(job.status);
+      setMediaFilterStatus('all');
+      setPreviewMediaEntry(null);
+      setIsRescheduleOpen(false);
+      setIsCancelOpen(false);
+      setClosingSaved(false);
     }
-  }, [job?.id, job?.status, job?.actualCost]);
+  }, [job?.id, job?.status, job?.actualCost, job?.warrantyDays]);
 
   if (!job) return null;
 
   const warrantyStatus = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
   const nextForwardStatus = getNextForwardStatus(job.status);
   const totalPhotosCount = getTotalJobPhotosCount(job);
+
+  const statusMediaEntries = ALL_STATUSES.flatMap((st) =>
+    (job.statusPhotos?.[st] || []).map((item) => ({ status: st, item }))
+  );
+  const statusesWithMedia = ALL_STATUSES.filter(
+    (st) => (job.statusPhotos?.[st]?.length || 0) > 0
+  );
+  const visibleMediaEntries =
+    mediaFilterStatus === 'all'
+      ? statusMediaEntries
+      : statusMediaEntries.filter((entry) => entry.status === mediaFilterStatus);
 
   const getMapsUrl = () => {
     if (job.customer.mapCoordinates && job.customer.mapCoordinates.includes(',')) {
@@ -114,11 +175,20 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   const handleSaveCost = () => {
     const cost = Number(actualCostInput);
-    if (!isNaN(cost) && cost >= 0) {
+    if (actualCostInput.trim() !== '' && !isNaN(cost) && cost >= 0) {
       onUpdateActualCost(job.id, cost);
       setCostSaved(true);
       setTimeout(() => setCostSaved(false), 2000);
     }
+  };
+
+  const handleSaveClosingDetails = () => {
+    const cost = actualCostInput.trim() === '' ? 0 : Number(actualCostInput);
+    if (isNaN(cost) || cost < 0) return;
+    const cleanDays = Math.max(0, Math.floor(Number(warrantyDaysInput) || 0));
+    onUpdateClosingDetails(job.id, cost, cleanDays);
+    setClosingSaved(true);
+    setTimeout(() => setClosingSaved(false), 2500);
   };
 
   // Send current job details/status to LINE Messaging API
@@ -173,9 +243,25 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <h3 className="font-bold text-slate-900 text-base sm:text-lg">
                 {job.product}
               </h3>
-              <p className="text-xs text-slate-500">
-                นัดหมาย: {job.appointmentDate} ({job.appointmentTime})
-              </p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                <p className="text-xs text-slate-500 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>
+                    นัดหมาย: <strong className="text-slate-700 font-mono">{job.appointmentDate}</strong> ({job.appointmentTime || 'ไม่ระบุเวลา'})
+                  </span>
+                </p>
+                {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsRescheduleOpen(true)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold transition-colors cursor-pointer"
+                    title="เปลี่ยนวันและเวลานัดหมาย"
+                  >
+                    <CalendarClock className="w-3 h-3" />
+                    <span>เปลี่ยนวัน/เวลา</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -251,6 +337,106 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 }}
               />
 
+              {/* แสดงรูปภาพ / วิดีโอของสถานะงานใต้ไอค่อนสถานะ กดดูขยายเป็นภาพใหญ่ได้ */}
+              {statusMediaEntries.length > 0 ? (
+                <div className="bg-white rounded-xl border border-slate-200 p-2.5 sm:p-3 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                      <Images className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>รูปภาพ / ไฟล์งานตามสถานะ (กดเพื่อขยายใหญ่)</span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setMediaFilterStatus('all')}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                          mediaFilterStatus === 'all'
+                            ? 'bg-slate-800 text-white border-slate-800'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        ทั้งหมด ({statusMediaEntries.length})
+                      </button>
+                      {statusesWithMedia.map((st) => {
+                        const count = job.statusPhotos?.[st]?.length || 0;
+                        const active = mediaFilterStatus === st;
+                        return (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => setMediaFilterStatus(st)}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                              active
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-blue-50/70 text-blue-800 border-blue-200 hover:bg-blue-100'
+                            }`}
+                          >
+                            {st} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {visibleMediaEntries.map(({ status: st, item }, idx) => {
+                      const isVid = isVideoMediaItem(item);
+                      const thumbSrc = isVid ? item.thumbnailDataUrl || '' : item.dataUrl;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setPreviewMediaEntry({ item, status: st })}
+                          className="group relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-900 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                          title={`กดดูขยายใหญ่ (${st} #${idx + 1})`}
+                        >
+                          {thumbSrc ? (
+                            <img
+                              src={thumbSrc}
+                              alt={`${st} ${idx + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 bg-slate-800 gap-0.5">
+                              <Film className="w-5 h-5" />
+                              <span className="text-[9px]">วิดีโอ</span>
+                            </div>
+                          )}
+
+                          <span className="absolute top-1 left-1 px-1.5 py-0.2 rounded bg-slate-900/75 text-white text-[9px] font-bold backdrop-blur-xs max-w-[85%] truncate">
+                            {st}
+                          </span>
+
+                          {isVid ? (
+                            <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                              <div className="w-7 h-7 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow">
+                                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="absolute bottom-1 right-1 p-1 rounded bg-slate-900/65 text-white opacity-85 group-hover:opacity-100 transition-opacity">
+                              <ZoomIn className="w-3 h-3" />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white/80 rounded-xl border border-dashed border-slate-300 px-3 py-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>ยังไม่มีรูปภาพในสถานะงาน (เมื่อเพิ่มรูปแล้ว รูปจะแสดงใต้ไอคอนตรงนี้)</span>
+                  <button
+                    type="button"
+                    onClick={() => onOpenStatusPhotos(job, job.status)}
+                    className="text-blue-600 hover:underline font-bold shrink-0 cursor-pointer"
+                  >
+                    + เพิ่มรูป
+                  </button>
+                </div>
+              )}
+
               {/* Direct helper text & Per-status Photo Pop-up triggers */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1.5 border-t border-slate-200/80">
                 <span className="text-[11px] text-slate-500">
@@ -268,17 +454,21 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span>ถ่าย/แนบรูป ({job.status})</span>
+                    <span>
+                      {job.status === 'ปิดงาน'
+                        ? 'รูป / วิดีโอ (ปิดงาน)'
+                        : `ถ่าย/แนบรูป (${job.status})`}
+                    </span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => onOpenStatusPhotos(job)}
                     className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-                    title="เปิดหน้าต่างรูปภาพแยกแต่ละสถานะของคิวนี้"
+                    title="เปิดหน้าต่างรูปภาพ/วิดีโอแยกแต่ละสถานะของคิวนี้"
                   >
                     <Images className="w-3.5 h-3.5 text-blue-600" />
-                    <span>รูปทั้งหมด ({totalPhotosCount})</span>
+                    <span>ไฟล์ทั้งหมด ({totalPhotosCount})</span>
                   </button>
                 </div>
               </div>
@@ -344,8 +534,21 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           )}
 
           {!isEditingStatus && (job.status === 'นัดหมายต่อ' || job.status === 'ยกเลิก') && (
-            <div className="p-2 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-800 font-medium">
-              สถานะพิเศษ: <strong>{job.status}</strong>
+            <div
+              className={`p-2.5 rounded-lg text-xs font-medium border ${
+                job.status === 'ยกเลิก'
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : 'bg-orange-50 border-orange-200 text-orange-800'
+              }`}
+            >
+              <div>
+                สถานะพิเศษ: <strong>{job.status}</strong>
+              </div>
+              {job.status === 'ยกเลิก' && job.cancelReason && (
+                <div className="text-[11px] mt-0.5 text-rose-700">
+                  เหตุผลยกเลิก: {job.cancelReason}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -445,88 +648,244 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           </div>
         </div>
 
-        {/* Cost & Payment Section */}
-        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-          <div>
-            <span className="text-xs text-slate-500 block">ประเมินราคาไว้:</span>
-            <span className="text-lg font-bold font-mono text-slate-900 tabular-nums">
-              ฿{job.estimatedCost.toLocaleString()}
-            </span>
-          </div>
+        {/* Cost & Warranty Section */}
+        {job.status === 'ปิดงาน' ? (
+          <div className="p-4 rounded-xl border-2 border-emerald-300 bg-gradient-to-br from-emerald-50/90 to-teal-50/70 space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200/80 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <Award className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-emerald-950">
+                    อัปเดตค่าซ่อมจริง &amp; ระบุการรับประกัน (ปิดงาน)
+                  </h4>
+                  <p className="text-[11px] text-emerald-800">
+                    ประเมินราคาไว้: <strong className="font-mono">฿{job.estimatedCost.toLocaleString()}</strong>
+                    {job.closedAt && ` • ปิดงานวันที่ ${job.closedAt}`}
+                  </p>
+                </div>
+              </div>
 
-          <div className="flex-1 max-w-xs">
-            <label className="text-xs font-semibold text-slate-700 block mb-1">
-              ค่าซ่อมจริงที่เก็บลูกค้า (บาท):
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min="0"
-                value={actualCostInput}
-                onChange={(e) => setActualCostInput(e.target.value)}
-                placeholder="ระบุค่าซ่อมจริง"
-                className="w-full px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold"
-              />
               <button
                 type="button"
-                onClick={handleSaveCost}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition-colors"
+                onClick={() => onOpenCloseJobModal(job)}
+                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold transition-colors cursor-pointer"
               >
-                บันทึกยอด
+                หน้าต่างปิดงาน (รูป/วิดีโอ)
               </button>
             </div>
-            {costSaved && (
-              <span className="text-[11px] text-emerald-600 font-medium block mt-1">
-                ✓ บันทึกค่าซ่อมจริงแล้ว
-              </span>
-            )}
-          </div>
-        </div>
 
-        {/* Warranty Status Box (ระยะประกัน ให้เเสดงเวลาคงเหลือประกันเพื่อเตือนว่ายังอยู่ในประกันหรือหมดประกัน) */}
-        <div
-          className={`p-4 rounded-xl border space-y-2 ${
-            warrantyStatus.status === 'valid'
-              ? 'bg-emerald-50/70 border-emerald-200'
-              : warrantyStatus.status === 'warning'
-              ? 'bg-amber-50/80 border-amber-300'
-              : 'bg-red-50/70 border-red-200'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {warrantyStatus.status === 'valid' && (
-                <ShieldCheck className="w-5 h-5 text-emerald-600" />
-              )}
-              {warrantyStatus.status === 'warning' && (
-                <ShieldAlert className="w-5 h-5 text-amber-600 animate-pulse" />
-              )}
-              {warrantyStatus.status === 'expired' && (
-                <ShieldX className="w-5 h-5 text-red-600" />
-              )}
-              <div>
-                <span className="font-bold text-sm text-slate-900 block">
-                  {warrantyStatus.label}
-                </span>
-                <span className="text-xs text-slate-600">
-                  ระยะประกัน {job.warrantyDays} วัน (สิ้นสุดวันที่ {warrantyStatus.formattedEndDate})
-                </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* ค่าซ่อมจริง */}
+              <div className="bg-white p-3 rounded-xl border border-emerald-200 space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>ค่าซ่อมจริงที่เก็บลูกค้า (บาท)</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={actualCostInput}
+                  onChange={(e) => setActualCostInput(e.target.value)}
+                  placeholder="กรอกค่าซ่อมจริง เช่น 1500"
+                  className="w-full px-3 py-2 text-sm font-mono font-bold text-emerald-900 bg-emerald-50/40 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* ระบุการประกัน */}
+              <div className="bg-white p-3 rounded-xl border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                    <span>ระบุการรับประกัน</span>
+                  </label>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      warrantyDaysInput === 0
+                        ? 'bg-slate-200 text-slate-700'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {warrantyDaysInput === 0 ? 'ไม่มีประกัน' : `${warrantyDaysInput} วัน`}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setWarrantyDaysInput(0)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                      warrantyDaysInput === 0
+                        ? 'bg-slate-800 text-white border-slate-800'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    ไม่มีประกัน (0 วัน)
+                  </button>
+                  {WARRANTY_PRESETS.map((preset) => (
+                    <button
+                      key={preset.days}
+                      type="button"
+                      onClick={() => setWarrantyDaysInput(preset.days)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                        warrantyDaysInput === preset.days
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white hover:bg-blue-50 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-600 whitespace-nowrap">กำหนดวันเอง:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={warrantyDaysInput}
+                    onChange={(e) =>
+                      setWarrantyDaysInput(Math.max(0, Number(e.target.value) || 0))
+                    }
+                    className="w-20 px-2 py-1 text-xs font-mono font-bold border border-slate-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-[11px] text-slate-500">วัน</span>
+                </div>
               </div>
             </div>
 
-            <div className="text-right font-mono font-bold text-sm">
-              {warrantyStatus.status === 'expired' ? (
-                <span className="text-red-700 bg-red-100 px-2.5 py-1 rounded-md text-xs">
-                  หมดประกันแล้ว
-                </span>
-              ) : (
-                <span className="text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-md text-xs">
-                  คุ้มครองอยู่
-                </span>
-              )}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="text-xs text-slate-700">
+                {job.warrantyDays === 0 || warrantyStatus.status === 'none' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-200/80 text-slate-800 font-semibold">
+                    สถานะประกันปัจจุบัน: ไม่มีประกัน (0 วัน)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-emerald-900 font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>
+                      {warrantyStatus.label} (ถึง {warrantyStatus.formattedEndDate})
+                    </span>
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveClosingDetails}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>บันทึกค่าซ่อมจริง &amp; ประกัน</span>
+              </button>
             </div>
+
+            {closingSaved && (
+              <div className="text-xs text-emerald-800 font-bold bg-emerald-100 border border-emerald-300 rounded-lg px-3 py-1.5">
+                ✓ อัปเดตค่าซ่อมจริงและการรับประกันลงตารางเรียบร้อยแล้ว
+              </div>
+            )}
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Cost & Payment Section for non-closed jobs */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-xs text-slate-500 block">ประเมินราคาไว้:</span>
+                <span className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+                  ฿{job.estimatedCost.toLocaleString()}
+                </span>
+              </div>
+
+              <div className="flex-1 max-w-xs">
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  ค่าซ่อมจริงที่เก็บลูกค้า (บาท):
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    value={actualCostInput}
+                    onChange={(e) => setActualCostInput(e.target.value)}
+                    placeholder="ระบุค่าซ่อมจริง"
+                    className="w-full px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCost}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer"
+                  >
+                    บันทึกยอด
+                  </button>
+                </div>
+                {costSaved && (
+                  <span className="text-[11px] text-emerald-600 font-medium block mt-1">
+                    ✓ บันทึกค่าซ่อมจริงแล้ว
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Warranty Status Box */}
+            <div
+              className={`p-4 rounded-xl border space-y-2 ${
+                warrantyStatus.status === 'none'
+                  ? 'bg-slate-50 border-slate-200'
+                  : warrantyStatus.status === 'valid'
+                  ? 'bg-emerald-50/70 border-emerald-200'
+                  : warrantyStatus.status === 'warning'
+                  ? 'bg-amber-50/80 border-amber-300'
+                  : 'bg-red-50/70 border-red-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {warrantyStatus.status === 'none' && (
+                    <Shield className="w-5 h-5 text-slate-500" />
+                  )}
+                  {warrantyStatus.status === 'valid' && (
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  )}
+                  {warrantyStatus.status === 'warning' && (
+                    <ShieldAlert className="w-5 h-5 text-amber-600 animate-pulse" />
+                  )}
+                  {warrantyStatus.status === 'expired' && (
+                    <ShieldX className="w-5 h-5 text-red-600" />
+                  )}
+                  <div>
+                    <span className="font-bold text-sm text-slate-900 block">
+                      {warrantyStatus.label}
+                    </span>
+                    <span className="text-xs text-slate-600">
+                      {warrantyStatus.status === 'none'
+                        ? 'ไม่ได้ระบุระยะรับประกัน (0 วัน)'
+                        : `ระยะประกัน ${job.warrantyDays} วัน (สิ้นสุดวันที่ ${warrantyStatus.formattedEndDate})`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right font-mono font-bold text-sm">
+                  {warrantyStatus.status === 'none' ? (
+                    <span className="text-slate-700 bg-slate-200 px-2.5 py-1 rounded-md text-xs">
+                      ไม่มีประกัน
+                    </span>
+                  ) : warrantyStatus.status === 'expired' ? (
+                    <span className="text-red-700 bg-red-100 px-2.5 py-1 rounded-md text-xs">
+                      หมดประกันแล้ว
+                    </span>
+                  ) : (
+                    <span className="text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-md text-xs">
+                      คุ้มครองอยู่
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* LINE Notify Action Card */}
         <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 space-y-3">
@@ -639,6 +998,28 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <CalendarPlus className="w-4 h-4 text-blue-600" />
               <span>ลงปฏิทินเตือนก่อน 30 นาที</span>
             </button>
+
+            {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsRescheduleOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <CalendarClock className="w-4 h-4 text-indigo-600" />
+                  <span>เปลี่ยนนัดหมาย</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCancelOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <Ban className="w-4 h-4 text-rose-600" />
+                  <span>ยกเลิกงาน</span>
+                </button>
+              </>
+            )}
           </div>
 
           <button
@@ -650,6 +1031,31 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Reschedule Appointment Modal */}
+      <RescheduleJobModal
+        job={isRescheduleOpen ? job : null}
+        onClose={() => setIsRescheduleOpen(false)}
+        onConfirmReschedule={onRescheduleJob}
+      />
+
+      {/* Cancel Job Confirmation Modal */}
+      <CancelJobModal
+        job={isCancelOpen ? job : null}
+        onClose={() => setIsCancelOpen(false)}
+        onConfirmCancel={onCancelJob}
+      />
+
+      {/* Fullscreen Image / Video Lightbox */}
+      <MediaLightboxModal
+        item={previewMediaEntry?.item || null}
+        caption={
+          previewMediaEntry
+            ? `คิว ${job.queueNumber} • สถานะ "${previewMediaEntry.status}"`
+            : undefined
+        }
+        onClose={() => setPreviewMediaEntry(null)}
+      />
     </div>
   );
 };

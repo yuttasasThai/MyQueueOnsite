@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   ShieldCheck,
   Link as LinkIcon,
+  FileCode,
+  Download,
 } from 'lucide-react';
 import { RepairJob, ShopSettings } from '../types';
 import { APP_VERSION, APP_REVISION } from '../version';
@@ -28,6 +30,7 @@ interface HeroCoverProps {
   onClearAllJobs?: () => void;
   onRequestAdminLogin?: () => void;
   onNavigateToCreateLink?: () => void;
+  onNavigateToSourceCode?: () => void;
 }
 
 export const HeroCover: React.FC<HeroCoverProps> = ({
@@ -39,6 +42,7 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
   isAdmin = false,
   onRequestAdminLogin,
   onNavigateToCreateLink,
+  onNavigateToSourceCode,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetSuccessNotice, setResetSuccessNotice] = useState(false);
@@ -274,19 +278,33 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
               <span>เข้าสู่ระบบแอดมิน (Admin)</span>
             </button>
           ) : (
-            <div className="flex items-center gap-2 flex-wrap justify-center">
-              <span className="text-[11px] text-emerald-300 flex items-center gap-1 font-semibold bg-emerald-950/70 border border-emerald-500/40 px-3 py-1 rounded-full">
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                <span>สถานะ: แอดมิน (Admin)</span>
-              </span>
-              {onNavigateToCreateLink && (
+            <div className="flex flex-col items-center gap-2.5 w-full">
+              <div className="flex items-center gap-2 flex-wrap justify-center">
+                <span className="text-[11px] text-emerald-300 flex items-center gap-1 font-semibold bg-emerald-950/70 border border-emerald-500/40 px-3 py-1 rounded-full">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>สถานะ: แอดมิน (Admin)</span>
+                </span>
+                {onNavigateToCreateLink && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToCreateLink}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    <LinkIcon className="w-3.5 h-3.5 text-white" />
+                    <span>หน้าสร้าง link user &rarr;</span>
+                  </button>
+                )}
+              </div>
+
+              {onNavigateToSourceCode && (
                 <button
                   type="button"
-                  onClick={onNavigateToCreateLink}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  onClick={onNavigateToSourceCode}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold border border-emerald-300/40 shadow-md transition-all cursor-pointer active:scale-95"
                 >
-                  <LinkIcon className="w-3.5 h-3.5 text-white" />
-                  <span>หน้าสร้าง link user &rarr;</span>
+                  <FileCode className="w-4 h-4 shrink-0" />
+                  <span>ดาวน์โหลด Source Code (v{APP_VERSION})</span>
+                  <Download className="w-3.5 h-3.5 shrink-0" />
                 </button>
               )}
             </div>

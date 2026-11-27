@@ -28,6 +28,10 @@ import {
   Copy,
   Link2,
   AlarmClock,
+  Cloud,
+  CloudOff,
+  LogOut,
+  ShieldCheck,
 } from 'lucide-react';
 import { ShopSettings, NotificationLog, RepairJob, LineNotifySettings } from '../types';
 import { COVER_PRESETS, resolveCoverImage } from '../data/initialData';
@@ -44,12 +48,20 @@ import {
   clearNotificationLogs,
   getLineShareUrl,
 } from '../services/lineNotify';
+import type { CloudSessionContext } from '../services/cloudSync';
 
 interface AdminSettingsProps {
   settings: ShopSettings;
   onSaveSettings: (newSettings: ShopSettings) => void;
   isAdmin?: boolean;
   jobs?: RepairJob[];
+  cloudCtx?: CloudSessionContext | null;
+  cloudUserEmail?: string | null;
+  cloudSyncStatus?: 'disconnected' | 'syncing' | 'synced' | 'error';
+  lastCloudSyncAt?: string | null;
+  onGoogleSignIn?: () => Promise<void> | void;
+  onForceCloudBackup?: () => Promise<void> | void;
+  onCloudSignOut?: () => Promise<void> | void;
 }
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({
@@ -57,6 +69,13 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
   onSaveSettings,
   isAdmin = true,
   jobs = [],
+  cloudCtx = null,
+  cloudUserEmail = null,
+  cloudSyncStatus = 'disconnected',
+  lastCloudSyncAt = null,
+  onGoogleSignIn,
+  onForceCloudBackup,
+  onCloudSignOut,
 }) => {
   const [subTab, setSubTab] = useState<'shop' | 'line_notify'>('shop');
 
@@ -296,6 +315,123 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
       {/* TAB 1: SHOP & BUTTON ICON SETTINGS */}
       {subTab === 'shop' && (
         <form onSubmit={handleSaveShop} className="space-y-6">
+          {/* Card 0: ฐานข้อมูลคลาวด์ & ซิงค์ข้ามเครื่อง (Firebase Cloud Sync) */}
+          <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    cloudUserEmail
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}
+                >
+                  {cloudUserEmail ? (
+                    <Cloud className="w-5 h-5" />
+                  ) : (
+                    <CloudOff className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2 flex-wrap">
+                    <span>ฐานข้อมูลคลาวด์ & ซิงค์ข้ามเครื่อง</span>
+                    {cloudUserEmail ? (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                        ซิงค์อัตโนมัติ
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                        เก็บเฉพาะในเครื่องนี้
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ผูกข้อมูลคิวงาน การตั้งค่าร้าน รูปถ่าย และข้อมูลแอดมิน/User ID ไว้บนคลาวด์ เปลี่ยนโทรศัพท์เครื่องใหม่ข้อมูลไม่หาย
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {cloudUserEmail ? (
+                  <>
+                    {onForceCloudBackup && (
+                      <button
+                        type="button"
+                        disabled={cloudSyncStatus === 'syncing'}
+                        onClick={() => onForceCloudBackup()}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-60"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${
+                            cloudSyncStatus === 'syncing' ? 'animate-spin' : ''
+                          }`}
+                        />
+                        <span>สำรองข้อมูลขึ้นคลาวด์ทันที</span>
+                      </button>
+                    )}
+                    {onCloudSignOut && (
+                      <button
+                        type="button"
+                        onClick={() => onCloudSignOut()}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>ออกจากคลาวด์</span>
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  onGoogleSignIn && (
+                    <button
+                      type="button"
+                      disabled={cloudSyncStatus === 'syncing'}
+                      onClick={() => onGoogleSignIn()}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      <Cloud className="w-4 h-4" />
+                      <span>
+                        {cloudSyncStatus === 'syncing'
+                          ? 'กำลังเชื่อมต่อ...'
+                          : 'เข้าสู่ระบบ Google (สำรองข้อมูลข้ามเครื่อง)'}
+                      </span>
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="text-[11px] text-slate-500">บัญชีคลาวด์ (Google)</div>
+                <div className="font-bold text-slate-900 truncate mt-0.5">
+                  {cloudUserEmail || 'ยังไม่เชื่อมต่อ'}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="text-[11px] text-slate-500">รหัสฐานข้อมูล / User ID</div>
+                <div className="font-bold text-slate-900 truncate mt-0.5 flex items-center gap-1">
+                  {cloudCtx?.isAdmin && (
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  )}
+                  <span className="truncate font-mono">
+                    {cloudCtx
+                      ? cloudCtx.linkedUsername ||
+                        cloudCtx.linkedUserId ||
+                        cloudCtx.workspaceId
+                      : 'LocalStorage'}
+                  </span>
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="text-[11px] text-slate-500">รายการคิวงาน & ซิงค์ล่าสุด</div>
+                <div className="font-bold text-slate-900 mt-0.5">
+                  {jobs.length} คิวงาน
+                  {lastCloudSyncAt ? ` · ${lastCloudSyncAt}` : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Card 1: ไอค่อนปุ่ม สร้างคิวงานใหม่ (6 สไตล์) */}
           <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">

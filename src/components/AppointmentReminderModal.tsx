@@ -1,4 +1,4 @@
-// File: /src/components/AppointmentReminderModal.tsx | Revision: Rev 19 | Version: 1.5.0 | Modified: 2026-11-15
+// File: /src/components/AppointmentReminderModal.tsx | Revision: Rev 21 | Version: 1.5.2 | Modified: 2026-11-16
 import React, { useState, useEffect } from 'react';
 import {
   AlarmClock,
@@ -30,6 +30,13 @@ interface AppointmentReminderModalProps {
   onResendLineNow?: () => Promise<void>;
 }
 
+function formatOverdueDuration(overdueMins: number): string {
+  if (overdueMins < 60) return `${overdueMins} นาที`;
+  const hrs = Math.floor(overdueMins / 60);
+  const mins = overdueMins % 60;
+  return mins > 0 ? `${hrs} ชั่วโมง ${mins} นาที` : `${hrs} ชั่วโมง`;
+}
+
 export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> = ({
   dueItems,
   isOpen,
@@ -46,28 +53,32 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
 
   const count = dueItems.length;
   const firstItem = dueItems[0];
+  const hasOverdueQueue = dueItems.some((d) => Date.now() >= d.schedule.appointmentAt);
+  const hasBeforeQueue = dueItems.some((d) => Date.now() < d.schedule.appointmentAt);
 
   useEffect(() => {
-    if (!isOpen || count === 0) {
-      warrantyAlarmService.stopAlarm();
-      return;
-    }
+    if (!isOpen || count === 0) return;
 
     setElapsedSeconds(0);
 
     const buildSpeech = () => {
       if (count === 1 && firstItem) {
-        const minsLeft = Math.max(
-          0,
-          Math.round((firstItem.schedule.appointmentAt - Date.now()) / 60000)
-        );
+        const diffMins = Math.round((firstItem.schedule.appointmentAt - Date.now()) / 60000);
         const timePhrase =
-          minsLeft > 0
-            ? `อีก ${minsLeft} นาที จะถึงเวลานัดหมาย`
-            : 'ถึงเวลานัดหมายซ่อมแล้ว';
+          diffMins > 0
+            ? `ก่อนถึงคิวงาน! อีก ${diffMins} นาที จะถึงเวลานัดหมาย`
+            : diffMins === 0
+            ? 'ถึงเวลานัดหมายซ่อมแล้ว!'
+            : `แจ้งเตือนเกินคิวงาน! เลยเวลานัดหมายมาแล้ว ${formatOverdueDuration(Math.abs(diffMins))}`;
         return `แจ้งเตือนคิวงาน! ${timePhrase} คิว ${firstItem.job.queueNumber} งาน ${firstItem.job.product} ลูกค้าคุณ${firstItem.job.customer.name} เวลานัด ${firstItem.job.appointmentTime} กรุณากดยืนยันเพื่อรับทราบทางไลน์ หรือในโปรแกรม`;
       }
-      return `แจ้งเตือนคิวงาน! มี ${count} คิวงาน ที่จะถึงเวลานัดหมายภายใน 30 นาที กรุณากดยืนยันเพื่อรับทราบทางไลน์ หรือในโปรแกรม`;
+      if (hasOverdueQueue && hasBeforeQueue) {
+        return `แจ้งเตือนคิวงาน! มี ${count} คิวงาน ทั้งใกล้ถึงเวลานัดและเกินเวลานัดหมายแล้ว กรุณากดยืนยันเพื่อรับทราบทางไลน์ หรือในโปรแกรม`;
+      }
+      if (hasOverdueQueue) {
+        return `แจ้งเตือนเกินคิวงาน! มี ${count} คิวงาน ที่เลยเวลานัดหมายแล้ว กรุณากดยืนยันเพื่อรับทราบทางไลน์ หรือในโปรแกรม`;
+      }
+      return `แจ้งเตือนก่อนถึงคิวงาน! มี ${count} คิวงาน ที่จะถึงเวลานัดหมายภายใน 30 นาที กรุณากดยืนยันเพื่อรับทราบทางไลน์ หรือในโปรแกรม`;
     };
 
     if (!isMuted) {
@@ -85,7 +96,7 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
       window.clearInterval(timerId);
       warrantyAlarmService.stopAlarm();
     };
-  }, [isOpen, count, firstItem?.schedule.ackKey, isMuted]);
+  }, [isOpen, count, firstItem?.schedule.ackKey, isMuted, hasOverdueQueue, hasBeforeQueue]);
 
   if (!isOpen || count === 0) return null;
 
@@ -121,23 +132,38 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
     )}`;
   };
 
+  const headerTag =
+    hasOverdueQueue && hasBeforeQueue
+      ? 'แจ้งเตือนก่อนถึงคิว 30 นาที & เกินคิวงาน'
+      : hasOverdueQueue
+      ? 'แจ้งเตือนเกินคิวงานแล้ว (เลยเวลานัดหมาย)'
+      : 'แจ้งเตือนก่อนเวลานัดหมาย 30 นาที';
+
   return (
     <div className="fixed inset-0 z-[90] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border-2 border-rose-500 overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-4">
         {/* Urgent Header */}
-        <div className="bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 text-white p-4 sm:p-5 flex items-center justify-between gap-3">
+        <div
+          className={`text-white p-4 sm:p-5 flex items-center justify-between gap-3 ${
+            hasOverdueQueue && !hasBeforeQueue
+              ? 'bg-gradient-to-r from-red-700 via-rose-700 to-orange-600'
+              : 'bg-gradient-to-r from-rose-600 via-red-600 to-amber-600'
+          }`}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-12 h-12 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center shrink-0 animate-bounce">
               <AlarmClock className="w-7 h-7 text-white" />
             </div>
             <div className="min-w-0">
               <div className="text-[11px] font-bold uppercase tracking-wider text-amber-100">
-                แจ้งเตือนก่อนเวลานัดหมาย 30 นาที
+                {headerTag}
               </div>
               <h3 className="font-extrabold text-base sm:text-lg leading-tight">
                 {count === 1 && firstItem
-                  ? `คิว ${firstItem.job.queueNumber} ใกล้ถึงเวลานัด!`
-                  : `มี ${count} คิวงาน ใกล้ถึงเวลานัดหมาย!`}
+                  ? Date.now() >= firstItem.schedule.appointmentAt
+                    ? `คิว ${firstItem.job.queueNumber} เกินกำหนดเวลานัดแล้ว!`
+                    : `คิว ${firstItem.job.queueNumber} ใกล้ถึงเวลานัด!`
+                  : `มี ${count} คิวงาน ต้องเร่งดำเนินการ!`}
               </h3>
             </div>
           </div>
@@ -200,10 +226,11 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
 
           <div className="space-y-2.5">
             {dueItems.map(({ job, schedule }) => {
-              const minsLeft = Math.max(0, Math.round((schedule.appointmentAt - Date.now()) / 60000));
+              const diffMins = Math.round((schedule.appointmentAt - Date.now()) / 60000);
+              const isOverdue = diffMins < 0;
               return (
                 <div
-                  key={job.id}
+                  key={schedule.ackKey}
                   className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5"
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -212,8 +239,20 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
                         <span className="px-2 py-0.5 bg-slate-900 text-white rounded font-mono font-bold text-xs">
                           {job.queueNumber}
                         </span>
-                        <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full text-[11px] font-bold">
-                          {minsLeft > 0 ? `อีก ${minsLeft} นาที` : 'ถึงเวลานัดแล้ว!'}
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            isOverdue
+                              ? 'bg-red-600 text-white'
+                              : diffMins === 0
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {diffMins > 0
+                            ? `ก่อนถึงคิว • อีก ${diffMins} นาที`
+                            : diffMins === 0
+                            ? 'ถึงเวลานัดแล้ว!'
+                            : `เกินคิวงาน • เลยมาแล้ว ${formatOverdueDuration(Math.abs(diffMins))}`}
                         </span>
                       </div>
                       <h4 className="font-bold text-slate-900 text-sm mt-1">{job.product}</h4>

@@ -41,33 +41,31 @@ export const DailyQueueAlarmModal: React.FC<DailyQueueAlarmModalProps> = ({
   };
 
   useEffect(() => {
-    if (isOpen && pendingJobs.length > 0) {
-      setIsMuted(false);
-      setAutoStopped(false);
-      setSecondsLeft(300);
+    if (!isOpen || pendingJobs.length === 0) return;
 
-      const speech = buildSpeechText();
-      warrantyAlarmService.startAlarm(speech, FIVE_MINUTES_MS, () => {
-        setAutoStopped(true);
-        setSecondsLeft(0);
+    setIsMuted(false);
+    setAutoStopped(false);
+    setSecondsLeft(300);
+
+    const speech = buildSpeechText();
+    warrantyAlarmService.startAlarm(speech, FIVE_MINUTES_MS, () => {
+      setAutoStopped(true);
+      setSecondsLeft(0);
+    });
+
+    const timer = window.setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
       });
+    }, 1000);
 
-      const timer = window.setInterval(() => {
-        setSecondsLeft((prev) => {
-          if (prev <= 1) {
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      return () => {
-        window.clearInterval(timer);
-        warrantyAlarmService.stopAlarm();
-      };
-    } else {
+    return () => {
+      window.clearInterval(timer);
       warrantyAlarmService.stopAlarm();
-    }
+    };
   }, [isOpen, pendingJobs.length]);
 
   const handleToggleMute = () => {

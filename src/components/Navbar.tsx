@@ -15,6 +15,7 @@ import {
   BarChart3,
   FileCode,
   ShieldAlert,
+  MapPin,
 } from 'lucide-react';
 import { ViewTab, UserAccount } from '../types';
 import { AuthSession, checkUserLinkExpiry } from '../services/storage';
@@ -124,19 +125,46 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>ปฏิทิน</span>
             </button>
 
-            {/* Admin-only Navigation: สร้าง link user */}
+            <button
+              onClick={() => onTabChange('map')}
+              aria-label="Map"
+              title="แผนที่คิวงาน (Map)"
+              className={`flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                currentTab === 'map'
+                  ? 'bg-blue-50 text-blue-700 font-semibold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <MapPin className="w-4 h-4" />
+              <span>แผนที่</span>
+            </button>
+
+            {/* Admin-only Navigation: สร้าง link user & ดาวน์โหลด Source Code */}
             {isAdmin && (
-              <button
-                onClick={() => onTabChange('create_link')}
-                className={`flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                  currentTab === 'create_link'
-                    ? 'bg-blue-50 text-blue-700 font-semibold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                <LinkIcon className="w-4 h-4 text-blue-600" />
-                <span>สร้าง link user</span>
-              </button>
+              <>
+                <button
+                  onClick={() => onTabChange('create_link')}
+                  className={`flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                    currentTab === 'create_link'
+                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <LinkIcon className="w-4 h-4 text-blue-600" />
+                  <span>สร้าง link user</span>
+                </button>
+                <button
+                  onClick={() => onTabChange('source_code')}
+                  className={`flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                    currentTab === 'source_code'
+                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <FileCode className="w-4 h-4 text-indigo-600" />
+                  <span>Source Code</span>
+                </button>
+              </>
             )}
 
             {/* Settings Tab: Accessible by both Admin and User */}
@@ -202,21 +230,36 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Quick Link to Create User Link when already Admin */}
+            {/* Quick Links to Create User Link & Source Code when already Admin */}
             {isAdmin && (
-              <button
-                type="button"
-                onClick={() => onTabChange('create_link')}
-                className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
-                  currentTab === 'create_link'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-                }`}
-                title="เปิดหน้าสร้าง link user"
-              >
-                <LinkIcon className="w-3.5 h-3.5" />
-                <span>สร้าง link user</span>
-              </button>
+              <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onTabChange('create_link')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                    currentTab === 'create_link'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                  }`}
+                  title="เปิดหน้าสร้าง link user"
+                >
+                  <LinkIcon className="w-3.5 h-3.5" />
+                  <span>สร้าง link user</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onTabChange('source_code')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                    currentTab === 'source_code'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
+                  title="เปิดหน้าดาวน์โหลด Source Code (เฉพาะแอดมิน)"
+                >
+                  <FileCode className="w-3.5 h-3.5" />
+                  <span>โหลดโค้ด</span>
+                </button>
+              </div>
             )}
 
             {/* Role / User Account Dropdown */}
@@ -339,11 +382,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <span>ใส่รหัสต่ออายุการใช้งาน</span>
                       </button>
                     )}
-                    {isAdmin && onOpenDownloadCode && (
+                    {isAdmin && (
                       <button
                         onClick={() => {
                           setShowUserDropdown(false);
-                          onOpenDownloadCode();
+                          if (onOpenDownloadCode) {
+                            onOpenDownloadCode();
+                          } else {
+                            onTabChange('source_code');
+                          }
                         }}
                         className="w-full text-left px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50 flex items-center gap-2 font-medium cursor-pointer"
                       >
@@ -433,16 +480,38 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Calendar className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">ปฏิทิน</span>
           </button>
+          <button
+            onClick={() => onTabChange('map')}
+            aria-label="Map"
+            title="แผนที่คิวงาน (Map)"
+            className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
+              currentTab === 'map' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">แผนที่</span>
+          </button>
           {isAdmin && (
-            <button
-              onClick={() => onTabChange('create_link')}
-              className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
-                currentTab === 'create_link' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
-              }`}
-            >
-              <LinkIcon className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">สร้าง link</span>
-            </button>
+            <>
+              <button
+                onClick={() => onTabChange('create_link')}
+                className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
+                  currentTab === 'create_link' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
+                }`}
+              >
+                <LinkIcon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">สร้าง link</span>
+              </button>
+              <button
+                onClick={() => onTabChange('source_code')}
+                className={`flex items-center justify-center gap-1 py-1 px-2 rounded font-medium flex-1 min-w-0 whitespace-nowrap cursor-pointer ${
+                  currentTab === 'source_code' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-600'
+                }`}
+              >
+                <FileCode className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">โค้ด ZIP</span>
+              </button>
+            </>
           )}
           <button
             onClick={() => onTabChange('settings')}

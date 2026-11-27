@@ -15,6 +15,7 @@ interface DashboardProps {
   isAdmin?: boolean;
   onRequestAdminLogin?: () => void;
   onNavigateToCreateLink?: () => void;
+  onNavigateToSourceCode?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -26,6 +27,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   isAdmin = false,
   onRequestAdminLogin,
   onNavigateToCreateLink,
+  onNavigateToSourceCode,
 }) => {
   return (
     <div className="w-full flex items-center justify-center py-2 sm:py-4">
@@ -38,6 +40,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         isAdmin={isAdmin}
         onRequestAdminLogin={onRequestAdminLogin}
         onNavigateToCreateLink={onNavigateToCreateLink}
+        onNavigateToSourceCode={onNavigateToSourceCode}
       />
     </div>
   );

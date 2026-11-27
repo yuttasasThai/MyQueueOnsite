@@ -1,6 +1,6 @@
 // File: /src/components/UserLinkLoginModal.tsx | Revision: Rev 12 | Version: 1.2.7 | Modified: 2026-11-13
 import React, { useState } from 'react';
-import { KeyRound, User, Lock, AlertCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { KeyRound, User, Lock, AlertCircle, Eye, EyeOff, ShieldCheck, Cloud, CheckCircle2 } from 'lucide-react';
 import { UserAccount } from '../types';
 
 interface UserLinkLoginModalProps {
@@ -9,6 +9,9 @@ interface UserLinkLoginModalProps {
   allUsers: UserAccount[];
   onSuccess: (user: UserAccount) => void;
   onRequestAdminLogin?: () => void;
+  onGoogleSignIn?: () => Promise<void> | void;
+  cloudUserEmail?: string | null;
+  cloudSyncing?: boolean;
 }
 
 export const UserLinkLoginModal: React.FC<UserLinkLoginModalProps> = ({
@@ -17,6 +20,9 @@ export const UserLinkLoginModal: React.FC<UserLinkLoginModalProps> = ({
   allUsers,
   onSuccess,
   onRequestAdminLogin,
+  onGoogleSignIn,
+  cloudUserEmail,
+  cloudSyncing = false,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -155,6 +161,31 @@ export const UserLinkLoginModal: React.FC<UserLinkLoginModalProps> = ({
             เข้าสู่ระบบใช้งาน
           </button>
         </form>
+
+        {onGoogleSignIn && (
+          <div className="pt-2 border-t border-slate-100 space-y-1.5">
+            {cloudUserEmail ? (
+              <div className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold flex items-center justify-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="truncate">ซิงค์คลาวด์แล้ว: {cloudUserEmail}</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={cloudSyncing}
+                onClick={() => onGoogleSignIn()}
+                className="w-full py-2 px-3 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/70 text-blue-800 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+              >
+                <Cloud className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>
+                  {cloudSyncing
+                    ? 'กำลังเชื่อมต่อ Google...'
+                    : 'เชื่อมต่อ Google เพื่อดึงข้อมูลเก่าข้ามเครื่อง'}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
 
         {onRequestAdminLogin && (
           <div className="pt-2 border-t border-slate-100 text-center">
