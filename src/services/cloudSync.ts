@@ -21,6 +21,8 @@ import {
   RepairJob,
   RepairStatus,
   ShopSettings,
+  SmsNotifySettings,
+  SmsProvider,
   StatusPhotoItem,
   StatusPhotosMap,
   UserAccount,
@@ -303,6 +305,12 @@ async function buildShopSettingsDocData(
     ln?.provider === 'line_notify' ? 'line_notify' : 'messaging_api';
   const lineSendMode = ln?.sendMode === 'broadcast' ? 'broadcast' : 'push';
 
+  const sms = settings.smsNotify;
+  const smsProvider: SmsProvider =
+    sms?.provider === 'thaibulksms' || sms?.provider === 'twilio' || sms?.provider === 'webhook'
+      ? sms.provider
+      : 'device_sms';
+
   return removeUndefinedFields({
     ownerUid,
     shopName: clip(settings.shopName ?? '', 200),
@@ -326,6 +334,17 @@ async function buildShopSettingsDocData(
     repeatIntervalMinutes: Math.max(1, Number(ln?.repeatIntervalMinutes) || 2),
     includeCustomerPhone: ln?.includeCustomerPhone !== false,
     includeMapLink: ln?.includeMapLink !== false,
+    smsEnabled: sms?.enabled !== false,
+    smsProvider,
+    smsOnlyWhenNoCustomerLine: sms?.onlyWhenNoCustomerLine !== false,
+    smsAutoSendOnCreate: sms?.autoSendOnCreate !== false,
+    smsAutoSendOnStatusChange: sms?.autoSendOnStatusChange !== false,
+    smsSenderName: clip(sms?.senderName ?? '', 60),
+    smsNotifyOnNewJob: sms?.notifyOnNewJob !== false,
+    smsNotifyOnStatusChange: sms?.notifyOnStatusChange !== false,
+    smsNotifyOnReschedule: sms?.notifyOnReschedule !== false,
+    smsIncludeShopPhone: sms?.includeShopPhone !== false,
+    smsIncludeMapLink: Boolean(sms?.includeMapLink),
   });
 }
 
@@ -334,6 +353,7 @@ function buildWorkspaceSecretsDocData(
   ownerUid: string
 ): Record<string, unknown> {
   const ln = settings.lineNotify;
+  const sms = settings.smsNotify;
   return removeUndefinedFields({
     ownerUid,
     adminPassword: clip(settings.adminPassword ?? '', 120),
@@ -342,6 +362,9 @@ function buildWorkspaceSecretsDocData(
     lineChannelAccessToken: clip(ln?.channelAccessToken ?? '', 500),
     lineChannelSecret: clip(ln?.channelSecret ?? '', 200),
     lineTargetId: clip(ln?.targetId ?? '', 120),
+    smsApiKey: clip(sms?.apiKey ?? '', 300),
+    smsApiSecret: clip(sms?.apiSecret ?? '', 300),
+    smsWebhookUrl: clip(sms?.webhookUrl ?? '', 500),
   });
 }
 
@@ -475,6 +498,29 @@ function parseCloudSettings(
     includeMapLink: settingsData.includeMapLink !== false,
   };
 
+  const smsProviderRaw = settingsData.smsProvider;
+  const smsProvider: SmsProvider =
+    smsProviderRaw === 'thaibulksms' || smsProviderRaw === 'twilio' || smsProviderRaw === 'webhook'
+      ? smsProviderRaw
+      : 'device_sms';
+
+  const smsNotify: SmsNotifySettings = {
+    enabled: settingsData.smsEnabled !== false,
+    provider: smsProvider,
+    onlyWhenNoCustomerLine: settingsData.smsOnlyWhenNoCustomerLine !== false,
+    autoSendOnCreate: settingsData.smsAutoSendOnCreate !== false,
+    autoSendOnStatusChange: settingsData.smsAutoSendOnStatusChange !== false,
+    senderName: clip(settingsData.smsSenderName ?? '', 60),
+    apiKey: clip(secretsData?.smsApiKey ?? '', 300),
+    apiSecret: clip(secretsData?.smsApiSecret ?? '', 300),
+    webhookUrl: clip(secretsData?.smsWebhookUrl ?? '', 500),
+    notifyOnNewJob: settingsData.smsNotifyOnNewJob !== false,
+    notifyOnStatusChange: settingsData.smsNotifyOnStatusChange !== false,
+    notifyOnReschedule: settingsData.smsNotifyOnReschedule !== false,
+    includeShopPhone: settingsData.smsIncludeShopPhone !== false,
+    includeMapLink: Boolean(settingsData.smsIncludeMapLink),
+  };
+
   return {
     ...INITIAL_SHOP_SETTINGS,
     shopName: typeof settingsData.shopName === 'string' ? settingsData.shopName : '',
@@ -510,6 +556,7 @@ function parseCloudSettings(
         ? secretsData.adminSecretToken
         : INITIAL_SHOP_SETTINGS.adminSecretToken,
     lineNotify,
+    smsNotify,
   };
 }
 
