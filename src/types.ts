@@ -70,9 +70,29 @@ export interface ShopSettings {
   coverSubtitle: string;
   adminPassword: string; // รหัสผ่านแอดมินสำหรับเข้าหน้าตั้งค่า
   adminSecretToken?: string; // โทเคนสำหรับสร้างลิงก์แอดมินโดยเฉพาะ
-  lineNotify?: LineNotifySettings; // ตั้งค่าการแจ้งเตือน LINE Notify
+  lineNotify?: LineNotifySettings; // ตั้งค่าการแจ้งเตือน LINE Notify / LINE Messaging API
+  smsNotify?: SmsNotifySettings; // ตั้งค่าการส่ง SMS แจ้งเตือนลูกค้า (กรณีไม่ได้แอด LINE ร้าน)
   repairCategories?: string[]; // หมวดงานซ่อมที่ผู้ใช้งานเพิ่มเองในหน้าตั้งค่า
   technicians?: string[]; // รายชื่อช่างผู้รับผิดชอบที่ผู้ใช้งานเพิ่มเองในหน้าตั้งค่า
+}
+
+export type SmsProvider = 'device_sms' | 'thaibulksms' | 'twilio' | 'webhook';
+
+export interface SmsNotifySettings {
+  enabled: boolean;
+  provider: SmsProvider;
+  onlyWhenNoCustomerLine: boolean; // ส่ง SMS เฉพาะกรณีลูกค้าไม่ได้กรอก LINE ID / ไม่ได้แอด LINE ร้าน
+  autoSendOnCreate: boolean; // แสดงปุ่มส่งด่วน / ส่งอัตโนมัติเมื่อรับคิวงานใหม่
+  autoSendOnStatusChange: boolean; // แสดงปุ่มส่งด่วน / ส่งอัตโนมัติเมื่ออัปเดตสถานะงานหรือปิดงาน
+  senderName: string; // ชื่อผู้ส่ง (Sender Name สำหรับ ThaiBulkSMS) หรือเบอร์ From (Twilio)
+  apiKey: string; // API Key (ThaiBulkSMS) หรือ Account SID (Twilio)
+  apiSecret: string; // API Secret (ThaiBulkSMS) หรือ Auth Token (Twilio)
+  webhookUrl?: string; // Custom Webhook URL (เช่น n8n / Make / SMS Gateway อื่น)
+  notifyOnNewJob: boolean; // แจ้งเตือน SMS เมื่อมีคิวงานใหม่
+  notifyOnStatusChange: boolean; // แจ้งเตือน SMS เมื่อเปลี่ยนสถานะ/ซ่อมเสร็จ/ปิดงาน
+  notifyOnReschedule: boolean; // แจ้งเตือน SMS เมื่อเปลี่ยนวัน/เวลานัดหมาย
+  includeShopPhone: boolean; // แนบเบอร์โทรศัพท์ร้านในข้อความ SMS
+  includeMapLink: boolean; // แนบลิงก์แผนที่หน้างาน (หากมี)
 }
 
 export interface LineNotifySettings {
@@ -94,7 +114,9 @@ export interface LineNotifySettings {
 export interface NotificationLog {
   id: string;
   timestamp: string;
-  type: 'new_job' | 'status_change' | 'manual_test' | 'reminder_30m';
+  channel?: 'line' | 'sms';
+  recipientPhone?: string;
+  type: 'new_job' | 'status_change' | 'manual_test' | 'reminder_30m' | 'sms_customer';
   jobQueueNumber?: string;
   jobProduct?: string;
   status?: RepairStatus;

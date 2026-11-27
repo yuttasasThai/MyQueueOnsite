@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 28 | Version: 1.5.9 | Modified: 2026-11-27
+// File: /src/version.ts | Revision: Rev 29 | Version: 1.6.0 | Modified: 2026-11-27
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.5.9';
-export const APP_REVISION = 'Rev 28';
+export const APP_VERSION = '1.6.0';
+export const APP_REVISION = 'Rev 29';
 export const APP_RELEASE_DATE = '2026-11-27';
 
 export interface RevisionRecord {
@@ -14,6 +14,32 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 29',
+    version: '1.6.0',
+    date: '2026-11-27',
+    description:
+      'เพิ่มระบบส่ง SMS แจ้งเตือนคิวงานให้ลูกค้า (เสริมจาก LINE) สำหรับกรณีลูกค้าไม่ได้แอด LINE ร้าน: รองรับทั้งโหมดแอป SMS ในมือถือฟรีทันที (เปิดข้อความพร้อมชื่อลูกค้า/เลขคิว/วันนัดใน 1 คลิก) และเชื่อมต่อ SMS Gateway อัตโนมัติ (ThaiBulkSMS, Twilio, Webhook) ผ่าน Server Proxy, ตั้งค่าเลือกส่งเฉพาะกรณีไม่มี LINE ลูกค้าได้, แทรกปุ่มลัดส่ง SMS ในตารางคิวงาน หน้ารายละเอียดงาน (พร้อมเทมเพลตแก้ข้อความ) และแถบแจ้งเตือนหลังสร้าง/เปลี่ยนสถานะ/เลื่อนนัด/ปิดงาน รวมถึงซิงค์การตั้งค่า SMS ข้ามเครื่องบน Firebase Cloud Firestore',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'vite.config.ts',
+      'public/alarm-sw.js',
+      'server.ts',
+      'api/sms/send.ts',
+      'src/types.ts',
+      'src/data/initialData.ts',
+      'src/services/smsNotify.ts',
+      'src/services/cloudSync.ts',
+      'firebase-blueprint.json',
+      'firestore.rules',
+      'src/components/AdminSettings.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/components/QueueTable.tsx',
+      'src/components/JobModal.tsx',
+      'src/App.tsx',
+    ],
+  },
   {
     revision: 'Rev 28',
     version: '1.5.9',

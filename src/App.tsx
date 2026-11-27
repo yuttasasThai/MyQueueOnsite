@@ -69,6 +69,16 @@ import {
   syncSchedulesAndLineConfigToServer,
 } from './services/lineNotify';
 import {
+  formatCustomerNewJobSms,
+  formatCustomerRescheduleSms,
+  formatCustomerStatusSms,
+  isSmsGatewayConfigured,
+  openDeviceSmsComposer,
+  resolveSmsSettings,
+  sendSmsNotification,
+  shouldNotifyCustomerBySms,
+} from './services/smsNotify';
+import {
   AppointmentReminderSchedule,
   buildUpcomingAppointmentSchedules,
   getDueAppointmentReminders,
@@ -118,6 +128,9 @@ import {
   CloudOff,
   RefreshCw,
   LogOut,
+  MessageSquare,
+  Copy,
+  Send,
 } from 'lucide-react';
 
 export default function App() {
@@ -234,23 +247,110 @@ export default function App() {
     return () => window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
   }, []);
 
-  // LINE Notification Toast state
+  // LINE & SMS Notification Toast state
+  interface ToastSmsAction {
+    phone: string;
+    customerName: string;
+    message: string;
+    queueNumber: string;
+    product: string;
+    status: RepairStatus;
+  }
+
   const [lineToast, setLineToast] = useState<{
     id: string;
+    createdAt: number;
     type: 'success' | 'info' | 'error';
     title: string;
     description: string;
+    smsAction?: ToastSmsAction;
   } | null>(null);
 
   const showLineToast = (
     title: string,
     description: string,
-    type: 'success' | 'info' | 'error' = 'success'
+    type: 'success' | 'info' | 'error' = 'success',
+    smsAction?: ToastSmsAction
   ) => {
-    setLineToast({ id: String(Date.now()), title, description, type });
+    const toastId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = Date.now();
+    setLineToast((prev) => {
+      const preservedSms =
+        smsAction ??
+        (prev?.smsAction && now - prev.createdAt < 4000 ? prev.smsAction : undefined);
+      return {
+        id: toastId,
+        createdAt: now,
+        title,
+        description,
+        type,
+        smsAction: preservedSms,
+      };
+    });
     setTimeout(() => {
-      setLineToast((current) => (current?.title === title ? null : current));
-    }, 4500);
+      setLineToast((current) => (current?.id === toastId ? null : current));
+    }, smsAction ? 9500 : 5000);
+  };
+
+  // Trigger customer SMS notification (auto gateway dispatch or 1-tap SMS toast composer)
+  const triggerCustomerSmsForEvent = (
+    job: RepairJob,
+    eventType: 'new_job' | 'status_change' | 'reschedule',
+    rescheduleReason?: string
+  ) => {
+    const smsCfg = resolveSmsSettings(settings.smsNotify);
+    if (!shouldNotifyCustomerBySms(job, smsCfg)) return;
+    if (eventType === 'new_job' && (!smsCfg.notifyOnNewJob || !smsCfg.autoSendOnCreate)) return;
+    if (eventType === 'status_change' && (!smsCfg.notifyOnStatusChange || !smsCfg.autoSendOnStatusChange))
+      return;
+    if (eventType === 'reschedule' && (!smsCfg.notifyOnReschedule || !smsCfg.autoSendOnStatusChange))
+      return;
+
+    const smsText =
+      eventType === 'new_job'
+        ? formatCustomerNewJobSms(job, settings)
+        : eventType === 'reschedule'
+        ? formatCustomerRescheduleSms(job, settings, rescheduleReason)
+        : formatCustomerStatusSms(job, job.status, settings);
+
+    if (isSmsGatewayConfigured(smsCfg)) {
+      sendSmsNotification({
+        cfg: smsCfg,
+        toPhone: job.customer.phone,
+        message: smsText,
+        settings,
+        job,
+        eventType: eventType === 'new_job' ? 'new_job' : 'status_change',
+      }).then((res) => {
+        showLineToast(
+          res.success ? `ส่ง SMS แจ้งลูกค้าสำเร็จ 💬` : `ส่ง SMS ไม่สำเร็จ`,
+          res.success
+            ? `คิว ${job.queueNumber} ถึง ${job.customer.name} (${job.customer.phone})`
+            : res.message,
+          res.success ? 'success' : 'error'
+        );
+      });
+    } else {
+      const actionLabel =
+        eventType === 'new_job'
+          ? `ส่ง SMS แจ้งคิวใหม่ให้ลูกค้า`
+          : eventType === 'reschedule'
+          ? `ส่ง SMS แจ้งเลื่อนนัดลูกค้า`
+          : `ส่ง SMS แจ้งสถานะ "${job.status}"`;
+      showLineToast(
+        actionLabel,
+        `ลูกค้า ${job.customer.name} ยังไม่ได้แอด LINE — กดปุ่มด้านล่างเพื่อเปิดแอป SMS ส่งแจ้งเตือน`,
+        'info',
+        {
+          phone: job.customer.phone,
+          customerName: job.customer.name,
+          message: smsText,
+          queueNumber: job.queueNumber,
+          product: job.product,
+          status: job.status,
+        }
+      );
+    }
   };
 
   // Modals
@@ -1011,6 +1111,9 @@ export default function App() {
             console.error('Failed to dispatch LINE notification', err);
           });
       }
+
+      // Trigger Customer SMS fallback if enabled (no customer LINE or all customers)
+      triggerCustomerSmsForEvent(job, 'new_job');
     }
     handleSaveJobs(updated);
     void runCloudTask((ctx) => syncSingleJobToCloud(ctx, job));
@@ -1134,6 +1237,10 @@ export default function App() {
           console.error('Failed to send status update to LINE Notify', err);
         });
     }
+
+    if (updatedJob && previousStatus !== newStatus) {
+      triggerCustomerSmsForEvent(updatedJob, 'status_change');
+    }
   };
 
   const handleConfirmCloseJob = (jobId: string, payload: CloseJobPayload) => {
@@ -1204,6 +1311,10 @@ export default function App() {
           });
         })
         .catch((err) => console.error('Failed to send close job LINE notification', err));
+    }
+
+    if (updatedJob) {
+      triggerCustomerSmsForEvent(updatedJob, 'status_change');
     }
   };
 
@@ -1372,6 +1483,10 @@ export default function App() {
         })
         .catch((err) => console.error('Failed to send reschedule LINE notification', err));
     }
+
+    if (updatedJob) {
+      triggerCustomerSmsForEvent(updatedJob, 'reschedule', reason);
+    }
   };
 
   const handleCancelJob = (jobId: string, reason?: string) => {
@@ -1435,6 +1550,10 @@ export default function App() {
           });
         })
         .catch((err) => console.error('Failed to send cancel job LINE notification', err));
+    }
+
+    if (updatedJob && previousStatus !== 'ยกเลิก') {
+      triggerCustomerSmsForEvent(updatedJob, 'status_change');
     }
   };
 
@@ -1828,6 +1947,7 @@ export default function App() {
             currentUserId={auth.userId}
             initialStatusFilter={statusFilterForQueue}
             initialSheet={queueSheetForQueue}
+            settings={settings}
           />
         )}
 
@@ -2182,29 +2302,75 @@ export default function App() {
         onOpenSourceCodePage={() => setCurrentTab('source_code')}
       />
 
-      {/* Floating LINE Notification Toast */}
+      {/* Floating LINE & SMS Notification Toast */}
       {lineToast && (
         <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm sm:w-full bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in slide-in-from-bottom-5 duration-200 flex items-start gap-3">
           <div
             className={`p-2 rounded-xl shrink-0 ${
               lineToast.type === 'error'
                 ? 'bg-rose-500/20 text-rose-400'
+                : lineToast.smsAction
+                ? 'bg-sky-500/20 text-sky-400'
                 : 'bg-emerald-500/20 text-emerald-400'
             }`}
           >
-            <BellRing className="w-5 h-5 animate-bounce" />
+            {lineToast.smsAction ? (
+              <MessageSquare className="w-5 h-5" />
+            ) : (
+              <BellRing className="w-5 h-5 animate-bounce" />
+            )}
           </div>
-          <div className="flex-1 space-y-0.5">
-            <div className="text-xs font-bold flex items-center justify-between">
-              <span>{lineToast.title}</span>
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="text-xs font-bold flex items-center justify-between gap-2">
+              <span className="truncate">{lineToast.title}</span>
               <button
+                type="button"
                 onClick={() => setLineToast(null)}
-                className="text-slate-400 hover:text-white text-xs leading-none p-1"
+                className="text-slate-400 hover:text-white text-xs leading-none p-1 shrink-0 cursor-pointer"
               >
                 &times;
               </button>
             </div>
             <p className="text-[11px] text-slate-300 leading-relaxed">{lineToast.description}</p>
+
+            {lineToast.smsAction && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const act = lineToast.smsAction!;
+                    openDeviceSmsComposer(act.phone, act.message);
+                    addNotificationLog({
+                      channel: 'sms',
+                      recipientPhone: act.phone,
+                      type: 'sms_customer',
+                      jobQueueNumber: act.queueNumber,
+                      jobProduct: act.product,
+                      status: act.status,
+                      success: true,
+                      message: `เปิดแอป SMS แจ้งคิว ${act.queueNumber} ถึง ${act.customerName} (${act.phone})`,
+                      responseMessage: 'Toast 1-Tap Device SMS',
+                    });
+                    setLineToast(null);
+                  }}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">ส่ง SMS แจ้ง ({lineToast.smsAction.phone})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(lineToast.smsAction!.message);
+                    setLineToast(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold transition-colors cursor-pointer"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>คัดลอก</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
