@@ -987,7 +987,7 @@ async function startServer() {
       return res.sendFile(distSwPath);
     }
 
-    let pkgVer = '1.6.0';
+    let pkgVer = '1.6.1';
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
       if (pkg?.version) pkgVer = String(pkg.version);
