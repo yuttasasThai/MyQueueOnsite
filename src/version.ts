@@ -1,8 +1,8 @@
-// File: /src/version.ts | Revision: Rev 29 | Version: 1.6.0 | Modified: 2026-11-27
+// File: /src/version.ts | Revision: Rev 30 | Version: 1.6.1 | Modified: 2026-11-27
 // ระบบจัดเก็บข้อมูลเวอร์ชันและประวัติการแก้ไขไฟล์ (Revision Tracking)
 
-export const APP_VERSION = '1.6.0';
-export const APP_REVISION = 'Rev 29';
+export const APP_VERSION = '1.6.1';
+export const APP_REVISION = 'Rev 30';
 export const APP_RELEASE_DATE = '2026-11-27';
 
 export interface RevisionRecord {
@@ -14,6 +14,42 @@ export interface RevisionRecord {
 }
 
 export const REVISION_HISTORY: RevisionRecord[] = [
+  {
+    revision: 'Rev 30',
+    version: '1.6.1',
+    date: '2026-11-27',
+    description:
+      'ปรับปรุงตามคำขอ 7 รายการ: 1) หน้าแอดมินต้องใส่รหัสผ่านและแสดงหน้าจอบูทระบบทุกครั้งที่เข้า, 2) นำแผงแอดมิน แถบซิงค์คลาวด์ ปุ่มดาวน์โหลดโค้ด และปุ่มสร้างลิงก์ออกจากหน้าหลัก/คิวงาน/ปฏิทิน/แผนที่ โดยย้ายศูนย์จัดการทั้งหมดไปไว้ในหน้าตั้งค่า (Admin Console), 3) ปฏิทินตารางนัดหมายแบบเห็นภาพรวมทั้ง 1 เดือน พร้อมระบบปักหมุดคิวงานและหน้าต่าง Popup แสดงรายละเอียดเมื่อกดที่วันปักหมุด, 4) ปรับตารางคิวงานเป็นสไตล์ Excel ที่ดูง่ายและพอดีกับหน้าจอโดยไม่ต้องเลื่อนซ้าย-ขวาทั้งบนคอมพิวเตอร์และมือถือ, 5) เพิ่มตัวเลือก "มีเบอร์" / "ไม่มีเบอร์" ในช่องเบอร์โทรลูกค้าพร้อมแสดงผลอย่างปลอดภัยทุกหน้าจอ, 6) ปรับเมนูหลักเป็นไอคอนวงกลมแนวดิ่งด้านซ้ายที่ซ่อน/กางเก็บได้, 7) เพิ่มหน้าดูรายได้แสดงตาราง Excel สรุปรายได้ก่อนประเมินและรับจริง',
+    modifiedFiles: [
+      'src/version.ts',
+      'package.json',
+      'vite.config.ts',
+      'public/alarm-sw.js',
+      'server.ts',
+      'api/health.ts',
+      'src/types.ts',
+      'src/services/smsNotify.ts',
+      'src/services/lineNotify.ts',
+      'src/services/appointmentAlarm.ts',
+      'src/components/BootLoadingScreen.tsx',
+      'src/components/HeroCover.tsx',
+      'src/components/Dashboard.tsx',
+      'src/components/Navbar.tsx',
+      'src/components/RevenueView.tsx',
+      'src/components/AdminSettings.tsx',
+      'src/components/ScheduleCalendarView.tsx',
+      'src/components/QueueTable.tsx',
+      'src/components/JobModal.tsx',
+      'src/components/JobDetailModal.tsx',
+      'src/components/PrintableWorkOrder.tsx',
+      'src/components/JobsMapView.tsx',
+      'src/components/AppointmentReminderModal.tsx',
+      'src/components/OverdueTwoDaysAlarmModal.tsx',
+      'src/components/DailyQueueAlarmModal.tsx',
+      'src/components/ExpiredWarrantyModal.tsx',
+      'src/App.tsx',
+    ],
+  },
   {
     revision: 'Rev 29',
     version: '1.6.0',

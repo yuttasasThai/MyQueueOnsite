@@ -10,6 +10,7 @@ export type RepairStatus =
 export interface CustomerInfo {
   name: string;
   phone: string;
+  hasPhone?: boolean; // true = มีเบอร์, false = ไม่มีเบอร์
   lineId: string;
   facebook: string;
   address: string;
@@ -148,4 +149,4 @@ export interface UserAccount {
   notes?: string;
 }
 
-export type ViewTab = 'dashboard' | 'queue' | 'calendar' | 'map' | 'create_link' | 'source_code' | 'settings';
+export type ViewTab = 'dashboard' | 'queue' | 'calendar' | 'map' | 'revenue' | 'create_link' | 'source_code' | 'settings';

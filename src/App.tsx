@@ -11,6 +11,7 @@ import { AdminSettings } from './components/AdminSettings';
 import { CreateUserLinkPage } from './components/CreateUserLinkPage';
 import { ScheduleCalendarView } from './components/ScheduleCalendarView';
 import { JobsMapView } from './components/JobsMapView';
+import { RevenueView } from './components/RevenueView';
 import { UserLoginModal } from './components/UserLoginModal';
 import { UserLinkLoginModal } from './components/UserLinkLoginModal';
 import { RenewCodeModal } from './components/RenewCodeModal';
@@ -110,24 +111,14 @@ import {
   isBootstrappedAdminEmail,
   isQuotaExceededError,
 } from './services/cloudSync';
-import { APP_VERSION, APP_REVISION } from './version';
 import {
   ShieldAlert,
   AlertTriangle,
-  KeyRound,
   RotateCcw,
   BellRing,
-  CheckCircle,
   Phone,
   Lock,
-  ShieldCheck,
-  FileCode,
-  Download,
-  Link as LinkIcon,
-  Cloud,
-  CloudOff,
-  RefreshCw,
-  LogOut,
+  ArrowLeft,
   MessageSquare,
   Copy,
   Send,
@@ -181,14 +172,6 @@ export default function App() {
   });
   const [jobs, setJobs] = useState<RepairJob[]>(loadJobs);
   const [auth, setAuth] = useState<AuthSession>(() => {
-    if (initialUrlAdmin) {
-      const adminAuth: AuthSession = {
-        role: 'admin',
-        userName: 'แอดมินเจ้าของร้าน (ลิงก์ถาวร)',
-      };
-      saveCurrentAuth(adminAuth);
-      return adminAuth;
-    }
     if (isOpenedViaUserLink) {
       const u = initialUrlUserCheck.foundUser;
       const userAuth: AuthSession = u
@@ -204,11 +187,7 @@ export default function App() {
       saveCurrentAuth(userAuth);
       return userAuth;
     }
-    // Root URL (/): if previously saved as admin keep admin; never carry stale User Link expiry (e.g. 45 days) onto root URL
-    const saved = loadCurrentAuth();
-    if (saved && saved.role === 'admin') {
-      return saved;
-    }
+    // หน้าแอดมินต้องใส่รหัสผ่านและบูทหน้าจอใหม่ทุกครั้ง (ไม่ล็อกอินอัตโนมัติจากแคชหรือลิงก์)
     return { role: 'user', userName: 'ช่างหน้างาน' };
   });
 
@@ -355,6 +334,7 @@ export default function App() {
 
   // Modals
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
+  const [newJobDefaultDate, setNewJobDefaultDate] = useState<string | undefined>(undefined);
   const [editingJob, setEditingJob] = useState<RepairJob | null>(null);
   const [selectedJob, setSelectedJob] = useState<RepairJob | null>(null);
   const [printingJob, setPrintingJob] = useState<RepairJob | null>(null);
@@ -366,7 +346,8 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRenewModalOpen, setIsRenewModalOpen] = useState(false);
   const [isDownloadCodeModalOpen, setIsDownloadCodeModalOpen] = useState(false);
-  const [isAdminPinModalOpen, setIsAdminPinModalOpen] = useState(false);
+  const [isAdminPinModalOpen, setIsAdminPinModalOpen] = useState<boolean>(initialUrlAdmin);
+  const [isSideMenuHidden, setIsSideMenuHidden] = useState<boolean>(false);
 
   // When opened via User Link (?user_token=...), require Username & Password first (no premature boot screen)
   const [pendingLinkUser, setPendingLinkUser] = useState<UserAccount | null>(
@@ -1568,6 +1549,8 @@ export default function App() {
     const newAuth: AuthSession = { role: 'admin', userName: 'แอดมินเจ้าของร้าน' };
     setAuth(newAuth);
     saveCurrentAuth(newAuth);
+    // แสดงหน้าจอบูทระบบทุกครั้งเมื่อเข้าสู่หน้าแอดมิน
+    setIsBooting(true);
     // Restore admin shop settings if cleared during user link session on same device
     if (!settings.shopName) {
       try {
@@ -1578,6 +1561,15 @@ export default function App() {
           saveShopSettings(restored);
         }
       } catch {}
+    }
+  };
+
+  const handleExitAdmin = () => {
+    const resetAuth: AuthSession = { role: 'user', userName: 'ช่างหน้างาน' };
+    setAuth(resetAuth);
+    saveCurrentAuth(null);
+    if (currentTab === 'create_link' || currentTab === 'source_code') {
+      setCurrentTab('dashboard');
     }
   };
 
@@ -1670,6 +1662,7 @@ export default function App() {
         activeUserAccount={activeUserAccount}
         onOpenNewJob={() => {
           setEditingJob(null);
+          setNewJobDefaultDate(undefined);
           setIsJobModalOpen(true);
         }}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
@@ -1682,169 +1675,16 @@ export default function App() {
         expiredWarrantyCount={allExpiredWarrantyJobs.length}
         onOpenExpiredWarrantyModal={() => setIsExpiredWarrantyModalOpen(true)}
         onRequestAdminLogin={() => setIsAdminPinModalOpen(true)}
+        isMenuHidden={isSideMenuHidden}
+        onToggleMenuHidden={() => setIsSideMenuHidden((prev) => !prev)}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-
-        {/* Standalone Admin Command Bar (Visible strictly AFTER Admin Login) */}
-        {isAdmin && (
-          <div className="mb-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-2xl px-4 py-3 shadow-md border border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
-                  <span>แผงควบคุมแอดมิน (Admin)</span>
-                  <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                    v{APP_VERSION} ({APP_REVISION})
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-300 truncate">
-                  ปุ่มดาวน์โหลด Source Code แสดงเฉพาะเมื่อเข้าสู่ระบบแอดมินแล้วเท่านั้น
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap shrink-0">
-              {currentTab !== 'create_link' && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('create_link')}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold transition-colors cursor-pointer"
-                >
-                  <LinkIcon className="w-3.5 h-3.5 text-blue-300" />
-                  <span>สร้าง link user</span>
-                </button>
-              )}
-
-              {currentTab !== 'source_code' ? (
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('source_code')}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold border border-emerald-300/40 shadow-sm transition-all cursor-pointer active:scale-95"
-                >
-                  <FileCode className="w-4 h-4 shrink-0" />
-                  <span>ดาวน์โหลด Source Code (v{APP_VERSION})</span>
-                  <Download className="w-3.5 h-3.5 shrink-0" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setCurrentTab('dashboard')}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors cursor-pointer"
-                >
-                  <span>&larr; กลับหน้าแดชบอร์ด</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Cross-Device Cloud Sync Bar (Bind Database to User ID & Admin across phones) */}
-        {isFirebaseAuthReady && (
-          <div
-            className={`mb-4 rounded-2xl px-4 py-2.5 border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
-              firebaseUser
-                ? cloudSyncStatus === 'error'
-                  ? 'bg-red-50 border-red-200 text-red-900'
-                  : 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
-                : 'bg-blue-50/90 border-blue-200 text-blue-950'
-            }`}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                  firebaseUser
-                    ? cloudSyncStatus === 'error'
-                      ? 'bg-red-100 text-red-600'
-                      : 'bg-emerald-600 text-white'
-                    : 'bg-blue-600 text-white'
-                }`}
-              >
-                {firebaseUser ? (
-                  <Cloud className="w-4 h-4" />
-                ) : (
-                  <CloudOff className="w-4 h-4" />
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold flex items-center gap-2 flex-wrap">
-                  <span>
-                    {firebaseUser
-                      ? `ซิงค์คลาวด์แล้ว: ${firebaseUser.email}`
-                      : 'สำรองและผูกฐานข้อมูลข้ามเครื่อง (Google Cloud)'}
-                  </span>
-                  {firebaseUser && cloudCtx && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/80 border border-emerald-200 text-emerald-800">
-                      {cloudCtx.isAdmin
-                        ? 'Admin Master'
-                        : `User ID: ${
-                            cloudCtx.linkedUsername ||
-                            cloudCtx.linkedUserId ||
-                            auth.userName ||
-                            cloudCtx.workspaceId
-                          }`}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] opacity-80 truncate">
-                  {cloudErrorMsg
-                    ? cloudErrorMsg
-                    : firebaseUser
-                    ? `คิวงาน ${jobs.length} รายการ · การตั้งค่าและข้อมูลแอดมินซิงค์อัตโนมัติทุกเครื่อง${
-                        lastCloudSyncAt ? ` (ล่าสุด ${lastCloudSyncAt})` : ''
-                      }`
-                    : 'เข้าสู่ระบบ Google เพื่อเก็บคิวงาน การตั้งค่าร้าน และข้อมูลแอดมินไว้กับ User ID — เปลี่ยนโทรศัพท์เครื่องใหม่ข้อมูลไม่หาย'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              {firebaseUser ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={cloudSyncStatus === 'syncing'}
-                    onClick={handleForceCloudBackup}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-100/70 text-emerald-900 border border-emerald-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60"
-                  >
-                    <RefreshCw
-                      className={`w-3.5 h-3.5 ${
-                        cloudSyncStatus === 'syncing' ? 'animate-spin' : ''
-                      }`}
-                    />
-                    <span>สำรองทันที</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCloudSignOut}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/80 hover:bg-white text-slate-700 border border-slate-200 text-xs font-semibold transition-colors cursor-pointer"
-                    title="ออกจากบัญชี Google Cloud"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">ออกคลาวด์</span>
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  disabled={cloudSyncStatus === 'syncing'}
-                  onClick={handleGoogleCloudSignIn}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95 disabled:opacity-60"
-                >
-                  <Cloud className="w-3.5 h-3.5" />
-                  <span>
-                    {cloudSyncStatus === 'syncing'
-                      ? 'กำลังเชื่อมต่อ...'
-                      : 'เข้าสู่ระบบ Google (ซิงค์คลาวด์)'}
-                  </span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+      <main
+        className={`flex-1 max-w-7xl w-full mx-auto py-4 sm:py-6 transition-all duration-200 pr-3 sm:pr-6 lg:pr-8 ${
+          isSideMenuHidden ? 'pl-3 sm:pl-6 lg:pl-8' : 'pl-[4.5rem] sm:pl-24'
+        }`}
+      >
 
         {/* User Link Expiration Banner (if expired or near expiry) */}
         {!isAdmin && activeUserAccount && (
@@ -1917,13 +1757,11 @@ export default function App() {
             }}
             onOpenNewJob={() => {
               setEditingJob(null);
+              setNewJobDefaultDate(undefined);
               setIsJobModalOpen(true);
             }}
             onClearAllJobs={handleClearAllJobs}
             isAdmin={isAdmin}
-            onRequestAdminLogin={() => setIsAdminPinModalOpen(true)}
-            onNavigateToCreateLink={() => setCurrentTab('create_link')}
-            onNavigateToSourceCode={() => setCurrentTab('source_code')}
           />
         )}
 
@@ -1955,8 +1793,9 @@ export default function App() {
           <ScheduleCalendarView
             jobs={jobs}
             onSelectJob={(job) => setSelectedJob(job)}
-            onOpenNewJob={() => {
+            onOpenNewJob={(dateStr) => {
               setEditingJob(null);
+              setNewJobDefaultDate(dateStr);
               setIsJobModalOpen(true);
             }}
           />
@@ -1968,35 +1807,67 @@ export default function App() {
             onSelectJob={(job) => setSelectedJob(job)}
             onOpenNewJob={() => {
               setEditingJob(null);
+              setNewJobDefaultDate(undefined);
               setIsJobModalOpen(true);
             }}
           />
         )}
 
-        {currentTab === 'create_link' && isAdmin && (
-          <CreateUserLinkPage
-            users={users}
-            onSaveUsers={handleSaveUsers}
-            onSwitchToUser={handleSwitchToUser}
-            onOpenDownloadCode={() => setCurrentTab('source_code')}
+        {currentTab === 'revenue' && (
+          <RevenueView
+            jobs={jobs}
+            onSelectJob={(job) => setSelectedJob(job)}
           />
         )}
 
-        {currentTab === 'source_code' && isAdmin && (
-          <Suspense
-            fallback={
-              <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-500">
-                กำลังโหลดแพ็กเกจ Source Code ล่าสุด...
-              </div>
-            }
-          >
-            <SourceCodeDownloadPage
-              isAdmin={isAdmin}
-              settings={settings}
-              jobs={jobs}
+        {currentTab === 'create_link' && isAdmin && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setCurrentTab('settings')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>กลับหน้าศูนย์แอดมิน &amp; ตั้งค่า</span>
+              </button>
+            </div>
+            <CreateUserLinkPage
               users={users}
+              onSaveUsers={handleSaveUsers}
+              onSwitchToUser={handleSwitchToUser}
+              onOpenDownloadCode={() => setCurrentTab('source_code')}
             />
-          </Suspense>
+          </div>
+        )}
+
+        {currentTab === 'source_code' && isAdmin && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setCurrentTab('settings')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>กลับหน้าศูนย์แอดมิน &amp; ตั้งค่า</span>
+              </button>
+            </div>
+            <Suspense
+              fallback={
+                <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-500">
+                  กำลังโหลดแพ็กเกจ Source Code ล่าสุด...
+                </div>
+              }
+            >
+              <SourceCodeDownloadPage
+                isAdmin={isAdmin}
+                settings={settings}
+                jobs={jobs}
+                users={users}
+              />
+            </Suspense>
+          </div>
         )}
 
         {currentTab === 'settings' && (
@@ -2012,14 +1883,21 @@ export default function App() {
             onGoogleSignIn={handleGoogleCloudSignIn}
             onForceCloudBackup={handleForceCloudBackup}
             onCloudSignOut={handleCloudSignOut}
+            onNavigateToCreateLink={() => setCurrentTab('create_link')}
+            onNavigateToSourceCode={() => setCurrentTab('source_code')}
+            onExitAdmin={handleExitAdmin}
           />
         )}
       </main>
 
       {/* Footer: แสดงเฉพาะโหมด Admin เท่านั้น (ลิงก์ User ลบข้อมูลร้านค้าด้านล่างออก) */}
       {isAdmin && (
-        <footer className="mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <footer
+          className={`mt-auto border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500 transition-all duration-200 pr-3 sm:pr-6 lg:pr-8 ${
+            isSideMenuHidden ? 'pl-3 sm:pl-6 lg:pl-8' : 'pl-[4.5rem] sm:pl-24'
+          }`}
+        >
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
             <span>{settings.shopName} · ระบบจัดตารางคิวงานซ่อมนอกสถานที่ (Onsite Service)</span>
             <div className="flex items-center gap-2 font-semibold text-slate-600">
               <span>ผู้จัดทำ ช่างหน่อยชุมแพ 0992256601</span>
@@ -2034,9 +1912,11 @@ export default function App() {
         onClose={() => {
           setIsJobModalOpen(false);
           setEditingJob(null);
+          setNewJobDefaultDate(undefined);
         }}
         onSave={handleCreateOrUpdateJob}
         initialJob={editingJob}
+        defaultAppointmentDate={newJobDefaultDate}
         users={users}
         repairCategories={settings.repairCategories || []}
         technicians={settings.technicians || []}
@@ -2204,11 +2084,11 @@ export default function App() {
         onSuccess={() => {
           setIsUserLinkLoginOpen(false);
           handleSwitchToAdmin();
-          setCurrentTab('create_link');
+          setCurrentTab('settings');
           setIsAdminPinModalOpen(false);
           showLineToast(
             'เข้าสู่ระบบแอดมินสำเร็จ 🛡️',
-            'ยืนยันรหัสผ่านเรียบร้อย เปิดหน้า "สร้าง link user" ให้ทันที',
+            'ยืนยันรหัสผ่านและบูทหน้าจอแอดมินเรียบร้อย เปิดศูนย์จัดการแอดมิน & ตั้งค่า',
             'success'
           );
         }}
