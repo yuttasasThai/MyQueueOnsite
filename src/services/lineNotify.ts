@@ -67,7 +67,7 @@ export function formatNewJobNotification(job: RepairJob, settings: ShopSettings)
   lines.push(`📅 วันนัดหมาย: ${job.appointmentDate} (${job.appointmentTime || 'ไม่ระบุเวลา'})`);
 
   lines.push(`👤 ลูกค้า: ${job.customer.name}`);
-  if (cfg?.includeCustomerPhone && job.customer.phone) {
+  if (cfg?.includeCustomerPhone && job.customer.hasPhone !== false && job.customer.phone && job.customer.phone !== 'ไม่มีเบอร์') {
     lines.push(`📞 โทร: ${job.customer.phone}`);
   }
   if (job.customer.lineId) {
@@ -130,7 +130,7 @@ export function formatStatusChangeNotification(
   lines.push(`📦 สินค้า: ${job.product}`);
   lines.push(`👤 ลูกค้า: ${job.customer.name}`);
 
-  if (cfg?.includeCustomerPhone && job.customer.phone) {
+  if (cfg?.includeCustomerPhone && job.customer.hasPhone !== false && job.customer.phone && job.customer.phone !== 'ไม่มีเบอร์') {
     lines.push(`📞 โทร: ${job.customer.phone}`);
   }
 
@@ -185,7 +185,7 @@ export function formatRescheduleNotification(
   lines.push(`📌 คิวงาน: ${job.queueNumber}`);
   lines.push(`📦 สินค้า: ${job.product}`);
   lines.push(`👤 ลูกค้า: ${job.customer.name}`);
-  if (cfg?.includeCustomerPhone && job.customer.phone) {
+  if (cfg?.includeCustomerPhone && job.customer.hasPhone !== false && job.customer.phone && job.customer.phone !== 'ไม่มีเบอร์') {
     lines.push(`📞 โทร: ${job.customer.phone}`);
   }
   lines.push(`❌ นัดเดิม: ${previousDate} (${previousTime || 'ไม่ระบุเวลา'})`);
@@ -225,7 +225,7 @@ export function formatThirtyMinReminderText(
     `📌 คิวงาน: ${job.queueNumber}`,
     `📦 งาน: ${job.product}`,
     `⏰ เวลานัด: ${job.appointmentDate} (${job.appointmentTime})`,
-    `👤 ลูกค้า: ${job.customer.name} (${job.customer.phone})`,
+    `👤 ลูกค้า: ${job.customer.name} (${job.customer.hasPhone === false || !job.customer.phone ? 'ไม่มีเบอร์' : job.customer.phone})`,
   ];
   if (job.customer.address) {
     lines.push(`🏠 ที่อยู่: ${job.customer.address}`);
@@ -310,7 +310,7 @@ export function buildThirtyMinReminderFlexMessage(
         },
         {
           type: 'text',
-          text: `👤 ลูกค้า: ${job.customer.name} (${job.customer.phone})`,
+          text: `👤 ลูกค้า: ${job.customer.name} (${job.customer.hasPhone === false || !job.customer.phone ? 'ไม่มีเบอร์' : job.customer.phone})`,
           size: 'xs',
           color: '#334155',
           wrap: true,

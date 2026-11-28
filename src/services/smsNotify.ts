@@ -1,5 +1,5 @@
-// File: /src/services/smsNotify.ts | Revision: Rev 29 | Version: 1.6.0 | Modified: 2026-11-27
-import { RepairJob, RepairStatus, ShopSettings, SmsNotifySettings } from '../types';
+// File: /src/services/smsNotify.ts | Revision: Rev 30 | Version: 1.6.1 | Modified: 2026-11-27
+import { CustomerInfo, RepairJob, RepairStatus, ShopSettings, SmsNotifySettings } from '../types';
 import { addNotificationLog, getMapUrlForJob } from './lineNotify';
 
 export const DEFAULT_SMS_SETTINGS: SmsNotifySettings = {
@@ -40,6 +40,24 @@ export function cleanSmsPhone(phone?: string): string {
   const digits = trimmed.replace(/[^0-9]/g, '');
   if (!digits) return '';
   return hasPlus ? `+${digits}` : digits;
+}
+
+/**
+ * Check whether customer has a real phone number (vs "ไม่มีเบอร์")
+ */
+export function hasCustomerPhone(customer?: Partial<CustomerInfo> | null): boolean {
+  if (!customer) return false;
+  if (customer.hasPhone === false) return false;
+  const raw = (customer.phone || '').trim();
+  if (!raw || raw === 'ไม่มีเบอร์' || raw === '-') return false;
+  return cleanSmsPhone(raw).length > 0;
+}
+
+/**
+ * Format customer phone for display ("ไม่มีเบอร์" when customer has no phone)
+ */
+export function formatCustomerPhone(customer?: Partial<CustomerInfo> | null): string {
+  return hasCustomerPhone(customer) ? (customer!.phone || '').trim() : 'ไม่มีเบอร์';
 }
 
 /**
@@ -89,6 +107,7 @@ export function shouldNotifyCustomerBySms(
 ): boolean {
   const resolved = resolveSmsSettings(cfg);
   if (!resolved.enabled) return false;
+  if (job.customer?.hasPhone === false) return false;
   const phone = cleanSmsPhone(job.customer?.phone);
   if (!phone || phone.length < 8) return false;
   if (!ignoreLineFilter && resolved.onlyWhenNoCustomerLine) {

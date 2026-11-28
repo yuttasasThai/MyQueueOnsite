@@ -393,7 +393,8 @@ export function downloadAppointmentIcsAlarm(job: RepairJob): boolean {
     /[\r\n]/g,
     ' '
   );
-  const desc = `ลูกค้า: ${job.customer.name} โทร: ${job.customer.phone} อาการ: ${job.symptoms || '-'}`.replace(
+  const phoneLabel = job.customer.hasPhone === false || !job.customer.phone ? 'ไม่มีเบอร์' : job.customer.phone;
+  const desc = `ลูกค้า: ${job.customer.name} โทร: ${phoneLabel} อาการ: ${job.symptoms || '-'}`.replace(
     /[\r\n]/g,
     ' '
   );
