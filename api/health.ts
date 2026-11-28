@@ -11,8 +11,8 @@ export default function handler(req: ApiRequest, res: ApiResponse & { setHeader?
   }
   return res.status(200).json({
     status: 'ok',
-    version: '1.6.0',
-    revision: 'Rev 29',
+    version: '1.6.1',
+    revision: 'Rev 30',
     timestamp: new Date().toISOString(),
     environment: 'vercel-serverless',
   });
