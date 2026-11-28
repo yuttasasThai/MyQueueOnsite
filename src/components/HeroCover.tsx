@@ -1,4 +1,4 @@
-// File: /src/components/HeroCover.tsx | Revision: Rev 18 | Version: 1.4.1 | Modified: 2026-11-15
+// File: /src/components/HeroCover.tsx | Revision: Rev 30 | Version: 1.6.1 | Modified: 2026-11-27
 import React, { useState } from 'react';
 import {
   Clock,
@@ -8,10 +8,6 @@ import {
   RotateCcw,
   AlertTriangle,
   CheckCircle2,
-  ShieldCheck,
-  Link as LinkIcon,
-  FileCode,
-  Download,
 } from 'lucide-react';
 import { RepairJob, ShopSettings } from '../types';
 import { APP_VERSION, APP_REVISION } from '../version';
@@ -28,9 +24,6 @@ interface HeroCoverProps {
   onOpenSettings?: () => void;
   onNavigateToDashboard?: () => void;
   onClearAllJobs?: () => void;
-  onRequestAdminLogin?: () => void;
-  onNavigateToCreateLink?: () => void;
-  onNavigateToSourceCode?: () => void;
 }
 
 export const HeroCover: React.FC<HeroCoverProps> = ({
@@ -40,9 +33,6 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
   onNavigateToQueue,
   onClearAllJobs,
   isAdmin = false,
-  onRequestAdminLogin,
-  onNavigateToCreateLink,
-  onNavigateToSourceCode,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetSuccessNotice, setResetSuccessNotice] = useState(false);
@@ -196,7 +186,7 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
         {/* คิวงานใหม่วันนี้ */}
         <div className="flex items-center justify-between bg-[#0e2a22] border border-emerald-500/40 px-4 py-2.5 rounded-xl text-emerald-200">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+            <Wrench className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="font-medium">คิวงานใหม่วันนี้มี:</span>
           </div>
           <div>
@@ -264,52 +254,6 @@ export const HeroCover: React.FC<HeroCoverProps> = ({
 
         {/* PWA Background Alarm & Install Card (เตือนก่อน 1 ชม. แม้ปิด Chrome) */}
         <PWAInstallButton jobs={jobs} variant="hero" />
-
-        {/* Admin Quick Button / Status Bar */}
-        <div className="pt-2.5 mt-2 border-t border-slate-700/60 w-full flex items-center justify-center">
-          {!isAdmin ? (
-            <button
-              type="button"
-              onClick={onRequestAdminLogin}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-950 hover:bg-slate-900 text-amber-300 hover:text-amber-200 text-xs font-bold border border-amber-500/50 shadow-md hover:shadow-lg transition-all cursor-pointer hover:scale-105 active:scale-95"
-              title="กดเพื่อเข้าสู่ระบบแอดมิน (ใส่รหัสผ่าน)"
-            >
-              <ShieldCheck className="w-4 h-4 text-amber-400" />
-              <span>เข้าสู่ระบบแอดมิน (Admin)</span>
-            </button>
-          ) : (
-            <div className="flex flex-col items-center gap-2.5 w-full">
-              <div className="flex items-center gap-2 flex-wrap justify-center">
-                <span className="text-[11px] text-emerald-300 flex items-center gap-1 font-semibold bg-emerald-950/70 border border-emerald-500/40 px-3 py-1 rounded-full">
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                  <span>สถานะ: แอดมิน (Admin)</span>
-                </span>
-                {onNavigateToCreateLink && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToCreateLink}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                  >
-                    <LinkIcon className="w-3.5 h-3.5 text-white" />
-                    <span>หน้าสร้าง link user &rarr;</span>
-                  </button>
-                )}
-              </div>
-
-              {onNavigateToSourceCode && (
-                <button
-                  type="button"
-                  onClick={onNavigateToSourceCode}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold border border-emerald-300/40 shadow-md transition-all cursor-pointer active:scale-95"
-                >
-                  <FileCode className="w-4 h-4 shrink-0" />
-                  <span>ดาวน์โหลด Source Code (v{APP_VERSION})</span>
-                  <Download className="w-3.5 h-3.5 shrink-0" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Modal: ยืนยันการล้างข้อมูลเก่า เพื่อเริ่มต้นใช้งานใหม่ */}

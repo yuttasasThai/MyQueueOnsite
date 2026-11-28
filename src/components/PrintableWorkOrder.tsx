@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Printer, Wrench, ShieldCheck, Phone, MapPin } from 'lucide-react';
 import { RepairJob, ShopSettings } from '../types';
 import { getWarrantyStatus } from '../services/storage';
+import { formatCustomerPhone } from '../services/smsNotify';
 
 interface PrintableWorkOrderProps {
   job: RepairJob | null;
@@ -90,7 +91,7 @@ export const PrintableWorkOrder: React.FC<PrintableWorkOrderProps> = ({
             </div>
             <div>
               <span className="text-slate-500">เบอร์โทรศัพท์:</span>{' '}
-              <strong className="text-slate-900 font-mono">{job.customer.phone}</strong>
+              <strong className="text-slate-900 font-mono">{formatCustomerPhone(job.customer)}</strong>
             </div>
             <div className="sm:col-span-2">
               <span className="text-slate-500">ที่อยู่หน้างาน:</span>{' '}

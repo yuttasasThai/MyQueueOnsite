@@ -11,14 +11,12 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Printer,
-  Calendar,
   CalendarClock,
   AlertTriangle,
   FileSpreadsheet,
   Edit,
   Edit3,
   ArrowRight,
-  User,
   Camera,
   Award,
   Ban,
@@ -32,7 +30,9 @@ import { addNotificationLog } from '../services/lineNotify';
 import {
   buildDeviceSmsUri,
   cleanSmsPhone,
+  formatCustomerPhone,
   formatCustomerStatusSms,
+  hasCustomerPhone,
 } from '../services/smsNotify';
 import { StatusStepperIcons, getNextForwardStatus } from './StatusStepperIcons';
 import {
@@ -103,10 +103,10 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     setActiveSheet(initialSheet);
   }, [initialSheet]);
 
-  // Filter logic
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
       const query = searchTerm.toLowerCase().trim();
+      const phoneLabel = formatCustomerPhone(job.customer).toLowerCase();
       const matchSearch =
         !query ||
         job.queueNumber.toLowerCase().includes(query) ||
@@ -115,6 +115,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
         job.symptoms.toLowerCase().includes(query) ||
         job.customer.name.toLowerCase().includes(query) ||
         job.customer.phone.includes(query) ||
+        phoneLabel.includes(query) ||
         job.customer.address.toLowerCase().includes(query);
 
       const matchStatus = selectedStatus === 'all' || job.status === selectedStatus;
@@ -134,7 +135,6 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     });
   }, [jobs, searchTerm, selectedStatus, selectedWarranty, onlyMyJobs, currentUserId]);
 
-  // Summary calculations for Excel status bar
   const totalEstimatedCost = useMemo(() => {
     return filteredJobs.reduce((acc, j) => acc + (j.estimatedCost || 0), 0);
   }, [filteredJobs]);
@@ -146,7 +146,6 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     );
   }, [filteredJobs]);
 
-  // Closed Jobs Summary Sheet calculations
   const allClosedJobs = useMemo(() => {
     return jobs.filter((j) => j.status === 'ปิดงาน');
   }, [jobs]);
@@ -165,12 +164,14 @@ export const QueueTable: React.FC<QueueTableProps> = ({
   const filteredClosedJobs = useMemo(() => {
     return allClosedJobs.filter((job) => {
       const query = searchTerm.toLowerCase().trim();
+      const phoneLabel = formatCustomerPhone(job.customer).toLowerCase();
       const matchSearch =
         !query ||
         job.queueNumber.toLowerCase().includes(query) ||
         job.product.toLowerCase().includes(query) ||
         job.customer.name.toLowerCase().includes(query) ||
         job.customer.phone.includes(query) ||
+        phoneLabel.includes(query) ||
         (job.assignedUserName || '').toLowerCase().includes(query);
 
       const refDate = job.closedAt || job.appointmentDate || job.loggedDate;
@@ -210,30 +211,25 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     [filteredClosedJobs]
   );
 
-  // Status helper styles
   const getStatusBadge = (status: RepairStatus) => {
     switch (status) {
       case 'รับงาน':
-        return 'bg-blue-100 text-blue-800 border-blue-300';
+        return 'bg-blue-50 text-blue-800 border-blue-300';
       case 'กำลังไป':
-        return 'bg-amber-100 text-amber-800 border-amber-300';
+        return 'bg-amber-50 text-amber-800 border-amber-300';
       case 'กำลังซ่อม':
-        return 'bg-purple-100 text-purple-800 border-purple-300';
+        return 'bg-purple-50 text-purple-800 border-purple-300';
       case 'ซ่อมแล้ว':
-        return 'bg-teal-100 text-teal-800 border-teal-300';
+        return 'bg-teal-50 text-teal-800 border-teal-300';
       case 'ปิดงาน':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold';
+        return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold';
       case 'นัดหมายต่อ':
-        return 'bg-orange-100 text-orange-800 border-orange-300';
+        return 'bg-orange-50 text-orange-800 border-orange-300';
       case 'ยกเลิก':
         return 'bg-slate-200 text-slate-700 border-slate-300';
       default:
         return 'bg-slate-100 text-slate-700 border-slate-300';
     }
-  };
-
-  const getWarrantyInfo = (job: RepairJob) => {
-    return getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
   };
 
   const getMapsUrl = (address: string, coords?: string) => {
@@ -243,7 +239,12 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
   };
 
-  // Export visible data to Excel CSV format with UTF-8 BOM
+  const formatShortDate = (ymd?: string) => {
+    if (!ymd || ymd.length < 10) return ymd || '-';
+    const [, m, d] = ymd.slice(0, 10).split('-');
+    return `${d}/${m}`;
+  };
+
   const handleExportCSV = () => {
     const headers = [
       'ลำดับ',
@@ -273,7 +274,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       job.appointmentDate,
       job.appointmentTime,
       `"${job.customer.name.replace(/"/g, '""')}"`,
-      `"${job.customer.phone}"`,
+      `"${formatCustomerPhone(job.customer).replace(/"/g, '""')}"`,
       `"${job.customer.address.replace(/"/g, '""')}"`,
       `"${job.product.replace(/"/g, '""')}"`,
       `"${job.productCategory}"`,
@@ -298,7 +299,6 @@ export const QueueTable: React.FC<QueueTableProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Export dedicated Closed Jobs Summary Excel CSV with totals row
   const handleExportClosedCSV = () => {
     const headers = [
       'ลำดับ',
@@ -334,7 +334,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
         job.closedAt || job.appointmentDate,
         job.appointmentDate,
         `"${job.customer.name.replace(/"/g, '""')}"`,
-        `"${job.customer.phone}"`,
+        `"${formatCustomerPhone(job.customer).replace(/"/g, '""')}"`,
         `"${job.product.replace(/"/g, '""')}"`,
         `"${job.productCategory || ''}"`,
         `"${(job.jobDetails || '').replace(/"/g, '""')}"`,
@@ -383,54 +383,40 @@ export const QueueTable: React.FC<QueueTableProps> = ({
 
   return (
     <div className="space-y-3 font-sans">
-      {/* Excel Workbook Sheet Switcher (ตารางคิวงานทั้งหมด vs สรุปงานที่ปิดแล้ว) */}
+      {/* Excel Workbook Sheet Switcher */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-1.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           onClick={() => setActiveSheet('all')}
-          className={`flex-1 min-w-[160px] py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+          className={`flex-1 min-w-[160px] py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
             activeSheet === 'all'
-              ? 'bg-emerald-700 text-white shadow-sm'
+              ? 'bg-emerald-800 text-white'
               : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
           }`}
         >
           <FileSpreadsheet className="w-4 h-4 shrink-0" />
           <span>Sheet 1: ตารางคิวงานทั้งหมด</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums ${
-              activeSheet === 'all' ? 'bg-emerald-900 text-emerald-100' : 'bg-slate-200 text-slate-700'
-            }`}
-          >
-            {jobs.length}
-          </span>
+          <span className="font-mono tabular-nums opacity-90">({jobs.length})</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveSheet('closed')}
-          className={`flex-1 min-w-[180px] py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+          className={`flex-1 min-w-[180px] py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
             activeSheet === 'closed'
-              ? 'bg-indigo-700 text-white shadow-sm'
+              ? 'bg-indigo-800 text-white'
               : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
           }`}
         >
           <Award className="w-4 h-4 shrink-0" />
           <span>Sheet 2: สรุปงานที่ปิดแล้ว (Excel)</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums ${
-              activeSheet === 'closed' ? 'bg-indigo-900 text-indigo-100' : 'bg-indigo-100 text-indigo-800'
-            }`}
-          >
-            {allClosedJobs.length}
-          </span>
+          <span className="font-mono tabular-nums opacity-90">({allClosedJobs.length})</span>
         </button>
       </div>
 
       {/* Excel Ribbon Control Bar */}
-      <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3.5 space-y-3">
-        {/* Top row: Search, Filters, Excel Export */}
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Live Search Input */}
+      <div className="bg-white rounded-xl border border-slate-300 shadow-xs p-3 space-y-2.5">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -444,14 +430,13 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 px-1"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 px-1 cursor-pointer"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Filter Dropdowns & Excel Export Button */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
               <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
@@ -468,7 +453,6 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               <option value="expired">หมดประกันแล้ว</option>
             </select>
 
-            {/* Month filter when on Closed Jobs Sheet */}
             {activeSheet === 'closed' && (
               <select
                 value={closedMonthFilter}
@@ -484,12 +468,11 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               </select>
             )}
 
-            {/* Toggle Only My Jobs if in user mode */}
             {activeSheet === 'all' && !isAdmin && currentUserId && (
               <button
                 type="button"
                 onClick={() => setOnlyMyJobs(!onlyMyJobs)}
-                className={`text-xs px-3 py-2 rounded-lg font-medium transition-colors border cursor-pointer ${
+                className={`text-xs px-3 py-2 rounded-lg font-medium transition-colors border cursor-pointer whitespace-nowrap ${
                   onlyMyJobs
                     ? 'bg-emerald-700 text-white border-emerald-700'
                     : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
@@ -499,30 +482,23 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               </button>
             )}
 
-            {/* Excel Download button */}
             <button
               type="button"
               onClick={activeSheet === 'closed' ? handleExportClosedCSV : handleExportCSV}
-              className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-2 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 activeSheet === 'closed'
-                  ? 'bg-indigo-700 hover:bg-indigo-800'
-                  : 'bg-emerald-700 hover:bg-emerald-800'
+                  ? 'bg-indigo-800 hover:bg-indigo-900'
+                  : 'bg-emerald-800 hover:bg-emerald-900'
               }`}
-              title={
-                activeSheet === 'closed'
-                  ? 'ส่งออกสรุปงานที่ปิดแล้วเป็น Excel (.csv)'
-                  : 'ส่งออกตารางข้อมูลเป็น Excel (.csv)'
-              }
             >
-              <FileSpreadsheet className="w-4 h-4" />
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
               <span>
-                {activeSheet === 'closed' ? 'ส่งออก Excel สรุปงานปิดแล้ว' : 'ส่งออก Excel'}
+                {activeSheet === 'closed' ? 'ส่งออก Excel สรุปงานปิดแล้ว' : 'ส่งออก Excel (.csv)'}
               </span>
             </button>
           </div>
         </div>
 
-        {/* Real-time Circular Horizontal Status Icons Bar (Sheet 1 only) */}
         {activeSheet === 'all' && (
           <>
             <StatusStepperIcons
@@ -533,14 +509,13 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               onSelectStatus={setSelectedStatus}
             />
 
-            {/* Status Segmented Tabs Bar (Excel Sheet-like Tabs) */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs border-t border-slate-200 pt-2.5 scrollbar-none">
+            <div className="flex items-center gap-1 overflow-x-auto pb-0.5 text-xs border-t border-slate-200 pt-2 scrollbar-none">
               <button
                 type="button"
                 onClick={() => setSelectedStatus('all')}
                 className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                   selectedStatus === 'all'
-                    ? 'bg-emerald-800 text-white shadow-xs'
+                    ? 'bg-emerald-800 text-white'
                     : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
@@ -557,18 +532,12 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                     onClick={() => setSelectedStatus(status)}
                     className={`px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
                       isSelected
-                        ? 'bg-emerald-700 text-white shadow-xs font-semibold'
+                        ? 'bg-emerald-700 text-white font-semibold'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
                     <span>{status}</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono tabular-nums ${
-                        isSelected ? 'bg-emerald-900 text-white' : 'bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {count}
-                    </span>
+                    <span className="text-[11px] font-mono tabular-nums opacity-85">({count})</span>
                   </button>
                 );
               })}
@@ -578,790 +547,518 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       </div>
 
       {activeSheet === 'all' ? (
-      <>
-
-      {/* Sheet 1 Mobile Card Layout (< md) */}
-      <div className="md:hidden space-y-2.5">
-        <div className="bg-gradient-to-r from-emerald-800 to-teal-800 text-white rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs shadow-xs">
-          <div className="flex items-center gap-2 font-semibold min-w-0">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-300 shrink-0" />
-            <span className="truncate">คิวงานซ่อม Onsite</span>
+        <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
+          {/* Excel Workbook Top Toolbar */}
+          <div className="bg-emerald-800 text-white px-3.5 py-2 flex items-center justify-between text-xs border-b border-emerald-900">
+            <div className="flex items-center gap-2 font-semibold min-w-0">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-200 shrink-0" />
+              <span className="truncate">ตารางคิวงานซ่อม Onsite (Excel View)</span>
+            </div>
+            <div className="font-mono text-[11px] text-emerald-100 flex items-center gap-2 shrink-0 tabular-nums">
+              <span>แสดง {filteredJobs.length} แถว</span>
+              <span className="hidden sm:inline">| รวม {jobs.length}</span>
+            </div>
           </div>
-          <span className="font-mono text-[11px] text-emerald-100 shrink-0 tabular-nums">
-            แสดง {filteredJobs.length} / {jobs.length} งาน
-          </span>
-        </div>
 
-        {filteredJobs.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400">
-            <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-            <p className="font-semibold text-slate-700 text-sm">
-              ไม่พบข้อมูลงานซ่อมตามตัวกรองนี้
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              ลองเปลี่ยนคำค้นหา หรือกดเลือกแท็บ &quot;ทั้งหมด&quot;
-            </p>
-          </div>
-        ) : (
-          filteredJobs.map((job) => {
-            const ws = getWarrantyInfo(job);
-            const nextStatus = getNextForwardStatus(job.status);
-            const photosCount = getTotalJobPhotosCount(job);
-
-            return (
-              <div
-                key={job.id}
-                onClick={() => onSelectJob(job)}
-                className="bg-white rounded-xl border border-slate-200 shadow-2xs p-3.5 space-y-2.5 hover:border-emerald-400 active:bg-emerald-50/40 transition-colors cursor-pointer"
-              >
-                {/* Card Top Row: Queue Number + Status + Appointment */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                    <span className="font-mono font-bold text-xs bg-slate-800 text-white px-2 py-0.5 rounded shadow-2xs">
-                      {job.queueNumber}
-                    </span>
-                    <span
-                      className={`inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded border ${getStatusBadge(
-                        job.status
-                      )}`}
-                    >
-                      {job.status}
-                    </span>
-                    {job.assignedUserName && (
-                      <span className="text-[11px] text-slate-500 font-medium truncate">
-                        • ช่าง {job.assignedUserName.split(' ')[0]}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="text-right shrink-0 font-mono text-[11px] text-slate-700">
-                    <div className="flex items-center justify-end gap-1 font-semibold text-slate-900">
-                      <Calendar className="w-3 h-3 text-blue-600 shrink-0" />
-                      <span>{job.appointmentDate}</span>
-                    </div>
-                    <div className="flex items-center justify-end gap-1 text-[10px] text-slate-500">
-                      <Clock className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                      <span>{job.appointmentTime || 'ไม่ระบุเวลา'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Customer Name, Address & Contact Quick Buttons */}
-                <div className="flex items-start justify-between gap-2 pt-0.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 font-bold text-sm text-slate-900">
-                      <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="truncate">{job.customer.name}</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-slate-600 mt-0.5">
-                      {job.customer.phone}
-                    </div>
-                    {job.customer.address && (
-                      <div className="text-[11px] text-slate-500 line-clamp-2 mt-0.5 break-words">
-                        {job.customer.address}
-                      </div>
-                    )}
-                  </div>
-
-                  <div
-                    className="flex items-center gap-1.5 shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <a
-                      href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
-                      className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 transition-colors"
-                      title={`โทร: ${job.customer.phone}`}
-                    >
-                      <Phone className="w-4 h-4" />
-                    </a>
-                    {job.customer.lineId && (
-                      <a
-                        href={`https://line.me/ti/p/~${job.customer.lineId.replace('@', '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-slate-100 hover:bg-emerald-100 text-emerald-600 transition-colors"
-                        title={`LINE: ${job.customer.lineId}`}
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                      </a>
-                    )}
-                    {cleanSmsPhone(job.customer.phone) && (
-                      <a
-                        href={buildDeviceSmsUri(
-                          job.customer.phone,
-                          formatCustomerStatusSms(job, job.status, settings)
-                        )}
-                        onClick={() =>
-                          addNotificationLog({
-                            channel: 'sms',
-                            recipientPhone: job.customer.phone,
-                            type: 'sms_customer',
-                            jobQueueNumber: job.queueNumber,
-                            jobProduct: job.product,
-                            status: job.status,
-                            success: true,
-                            message: `เปิดแอป SMS แจ้งคิว ${job.queueNumber} ถึง ${job.customer.phone}`,
-                            responseMessage: 'Quick SMS from Mobile Card',
-                          })
-                        }
-                        className={`min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg transition-colors ${
-                          !job.customer.lineId
-                            ? 'bg-sky-100 hover:bg-sky-200 text-sky-700'
-                            : 'bg-slate-100 hover:bg-sky-100 text-sky-600'
-                        }`}
-                        title={
-                          !job.customer.lineId
-                            ? `ส่ง SMS แจ้งคิวงาน (ลูกค้าไม่มี LINE): ${job.customer.phone}`
-                            : `ส่ง SMS: ${job.customer.phone}`
-                        }
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </a>
-                    )}
-                    <a
-                      href={getMapsUrl(job.customer.address, job.customer.mapCoordinates)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 text-rose-500 transition-colors"
-                      title="เปิด Google Maps นำทาง"
-                    >
-                      <MapPin className="w-4 h-4" />
-                    </a>
-                  </div>
-                </div>
-
-                {/* Product, Job Details & Symptoms */}
-                <div className="border-t border-slate-100 pt-2 space-y-1">
-                  <div className="text-xs font-bold text-slate-900 break-words">
-                    {job.product}
-                  </div>
-                  {job.jobDetails && (
-                    <div className="text-xs text-slate-600 line-clamp-2 break-words">
-                      {job.jobDetails}
-                    </div>
-                  )}
-                  {job.symptoms && (
-                    <div className="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block max-w-full break-words">
-                      อาการ: {job.symptoms}
-                    </div>
-                  )}
-                </div>
-
-                {/* Costs & Warranty Summary */}
-                <div className="border-t border-slate-100 pt-2 grid grid-cols-3 gap-2 text-xs">
-                  <div>
-                    <div className="text-[10px] text-slate-500">ประเมิน</div>
-                    <div className="font-mono font-semibold text-slate-800 tabular-nums">
-                      ฿{job.estimatedCost?.toLocaleString() || '0'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-500">ค่าซ่อมจริง</div>
-                    <div className="font-mono tabular-nums">
-                      {job.actualCost !== null ? (
-                        <span className="font-bold text-emerald-700">
-                          ฿{job.actualCost.toLocaleString()}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] text-slate-500">ประกัน</div>
-                    <div className="text-[11px] font-semibold">
-                      {ws.status === 'none' && (
-                        <span className="text-slate-600">ไม่มี (0 วัน)</span>
-                      )}
-                      {ws.status === 'valid' && (
-                        <span className="text-emerald-700 inline-flex items-center justify-end gap-0.5">
-                          <ShieldCheck className="w-3 h-3 shrink-0" />
-                          <span>เหลือ {ws.daysRemaining} ว.</span>
-                        </span>
-                      )}
-                      {ws.status === 'warning' && (
-                        <span className="text-amber-700 inline-flex items-center justify-end gap-0.5">
-                          <ShieldAlert className="w-3 h-3 shrink-0" />
-                          <span>ใกล้หมด {ws.daysRemaining} ว.</span>
-                        </span>
-                      )}
-                      {ws.status === 'expired' && (
-                        <span className="text-red-700 inline-flex items-center justify-end gap-0.5">
-                          <ShieldX className="w-3 h-3 shrink-0" />
-                          <span>หมดประกัน</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Footer */}
-                <div
-                  className="border-t border-slate-100 pt-2.5 flex flex-wrap items-center justify-between gap-2"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {nextStatus && (
-                      <button
-                        type="button"
-                        onClick={() => onStatusChange(job.id, nextStatus, false)}
-                        className="min-h-[36px] inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors cursor-pointer"
-                      >
-                        <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                        <span>{nextStatus}</span>
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setEditingStatusJob(job)}
-                      className="min-h-[36px] inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5 shrink-0" />
-                      <span>แก้ไขสถานะ</span>
-                    </button>
-
-                    {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
-                      <button
-                        type="button"
-                        onClick={() => setReschedulingJob(job)}
-                        className="min-h-[36px] inline-flex items-center gap-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                        title="เปลี่ยนวัน/เวลานัดหมาย"
-                      >
-                        <CalendarClock className="w-3.5 h-3.5 shrink-0" />
-                        <span>เลื่อนนัด</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onOpenStatusPhotos(job)}
-                      className="relative min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                      title={`รูป/วิดีโอ (${photosCount})`}
-                    >
-                      <Camera className="w-4 h-4" />
-                      {photosCount > 0 && (
-                        <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-blue-600 text-white text-[9px] font-mono font-bold flex items-center justify-center">
-                          {photosCount}
-                        </span>
-                      )}
-                    </button>
-
-                    {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
-                      <button
-                        type="button"
-                        onClick={() => setCancellingJob(job)}
-                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="ยกเลิกงาน"
-                      >
-                        <Ban className="w-4 h-4" />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => onPrintJob(job)}
-                      className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                      title="พิมพ์ใบเสร็จ/ส่งมอบ"
-                    >
-                      <Printer className="w-4 h-4" />
-                    </button>
-
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => onEditJob(job)}
-                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                        title="แก้ไขงาน"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => onSelectJob(job)}
-                      className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
-                      title="ดูรายละเอียดงาน"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-
-        {/* Mobile Summary Bar */}
-        <div className="bg-slate-100 rounded-xl border border-slate-200 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 font-mono">
-          <span className="font-semibold text-slate-900">
-            รวม {filteredJobs.length} งาน (ปิดแล้ว {filteredJobs.filter((j) => j.status === 'ปิดงาน').length})
-          </span>
-          <div className="flex items-center gap-3 tabular-nums">
-            <span>ประเมิน ฿{totalEstimatedCost.toLocaleString()}</span>
-            <strong className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-              จริง ฿{totalActualCost.toLocaleString()}
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Excel Sheet Container with Green Toolbar Top (Desktop md+) */}
-      <div className="hidden md:block bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-        {/* Excel Title Bar */}
-        <div className="bg-gradient-to-r from-emerald-800 to-teal-800 text-white px-4 py-2.5 flex items-center justify-between text-xs border-b border-emerald-900">
-          <div className="flex items-center gap-2 font-semibold">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
-            <span className="tracking-wide">
-              ตารางคิวงานซ่อม Onsite (Excel Sheet View)
-            </span>
-          </div>
-          <div className="font-mono text-[11px] text-emerald-200 flex items-center gap-3">
-            <span>แสดง {filteredJobs.length} แถว</span>
-            <span>|</span>
-            <span>รวม {jobs.length} รายการ</span>
-          </div>
-        </div>
-
-        {/* Excel Spreadsheet Table */}
-        <div className="overflow-x-auto max-h-[70vh] relative">
-          <table className="w-full text-left border-collapse text-xs select-text">
-            {/* Excel Header (Thick border, distinct background, column headers) */}
-            <thead className="sticky top-0 z-20 bg-slate-100 shadow-xs">
-              <tr className="border-b-2 border-slate-300 text-slate-700 font-bold uppercase tracking-wider text-[11px]">
-                <th className="py-2 px-2.5 border-r border-slate-300 text-center w-12 bg-slate-200 text-slate-600">
-                  #
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[85px] text-center">
-                  เลขคิวงาน
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[130px]">
-                  วันนัดหมาย / เวลา
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[200px]">
-                  อุปกรณ์ & รายละเอียดงาน
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[190px]">
-                  ลูกค้า & ที่อยู่หน้างาน
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 min-w-[110px] text-center">
-                  เบอร์โทร / แผนที่
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-right min-w-[100px]">
-                  ประเมิน (฿)
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-right min-w-[100px]">
-                  ค่าซ่อมจริง (฿)
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center min-w-[120px]">
-                  สถานะงาน
-                </th>
-                <th className="py-2.5 px-3 border-r border-slate-300 text-center min-w-[140px]">
-                  ระยะประกัน
-                </th>
-                <th className="py-2.5 px-3 min-w-[95px] text-center bg-slate-100">
-                  จัดการ
-                </th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-200">
-              {filteredJobs.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400 bg-white">
-                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                    <p className="font-semibold text-slate-700 text-sm">
-                      ไม่พบข้อมูลงานซ่อมในตารางตามตัวกรองนี้
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      ลองเปลี่ยนคำค้นหา หรือกดเลือกแท็บ "ทั้งหมด"
-                    </p>
-                  </td>
+          {/* Mobile Viewport-Fitting Excel Grid (< md, Zero Horizontal Scroll) */}
+          <div className="md:hidden">
+            <table className="w-full table-fixed border-collapse text-[11px]">
+              <thead>
+                <tr className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
+                  <th className="w-[23%] py-2 px-1.5 border-r border-slate-300 text-left">
+                    คิว / นัด
+                  </th>
+                  <th className="w-[38%] py-2 px-1.5 border-r border-slate-300 text-left">
+                    ลูกค้า / อุปกรณ์
+                  </th>
+                  <th className="w-[24%] py-2 px-1.5 border-r border-slate-300 text-center">
+                    สถานะ / ยอด
+                  </th>
+                  <th className="w-[15%] py-2 px-1 text-center">จัดการ</th>
                 </tr>
-              ) : (
-                filteredJobs.map((job, idx) => {
-                  const ws = getWarrantyInfo(job);
-                  const isEven = idx % 2 === 0;
+              </thead>
+              <tbody>
+                {filteredJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-10 px-4 text-center text-slate-400 bg-white">
+                      <AlertTriangle className="w-7 h-7 mx-auto mb-1.5 text-slate-300" />
+                      <p className="font-semibold text-slate-700 text-xs">
+                        ไม่พบข้อมูลงานซ่อมตามตัวกรองนี้
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredJobs.map((job, idx) => {
+                    const hasPhone = hasCustomerPhone(job.customer);
+                    const phoneText = formatCustomerPhone(job.customer);
+                    const nextStatus = getNextForwardStatus(job.status);
+                    const displayCost = job.actualCost !== null ? job.actualCost : job.estimatedCost;
 
-                  return (
-                    <tr
-                      key={job.id}
-                      onClick={() => onSelectJob(job)}
-                      className={`transition-colors cursor-pointer group hover:bg-emerald-50/60 ${
-                        isEven ? 'bg-white' : 'bg-slate-50/70'
-                      }`}
-                    >
-                      {/* Excel Row Index */}
-                      <td className="py-2 px-2.5 border-r border-slate-200 text-center font-mono text-slate-400 text-[11px] bg-slate-100/60 group-hover:bg-emerald-100/40">
-                        {idx + 1}
-                      </td>
-
-                      {/* เลขคิวงาน */}
-                      <td className="py-2 px-3 border-r border-slate-200 text-center whitespace-nowrap">
-                        <span className="font-mono font-bold text-xs bg-slate-800 text-white px-2 py-0.5 rounded shadow-2xs">
-                          {job.queueNumber}
-                        </span>
-                      </td>
-
-                      {/* วันนัดหมาย & เวลา */}
-                      <td className="py-2 px-3 border-r border-slate-200 text-slate-800">
-                        <div className="flex items-center gap-1 font-mono font-semibold text-slate-900">
-                          <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                          <span>{job.appointmentDate}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
-                          <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{job.appointmentTime || 'ไม่ระบุเวลา'}</span>
-                        </div>
-                        {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReschedulingJob(job);
-                            }}
-                            className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold transition-colors cursor-pointer"
-                            title="เปลี่ยนวัน/เวลานัดหมาย"
-                          >
-                            <CalendarClock className="w-2.5 h-2.5" />
-                            <span>เปลี่ยนนัด</span>
-                          </button>
-                        )}
-                      </td>
-
-                      {/* สินค้า & รายละเอียดงาน */}
-                      <td className="py-2 px-3 border-r border-slate-200">
-                        <div className="font-bold text-slate-900 line-clamp-1">
-                          {job.product}
-                        </div>
-                        <div className="text-[11px] text-slate-600 line-clamp-1 mt-0.5">
-                          {job.jobDetails}
-                        </div>
-                        {job.symptoms && (
-                          <div className="text-[10px] text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 mt-0.5 line-clamp-1 inline-block">
-                            อาการ: {job.symptoms}
+                    return (
+                      <tr
+                        key={job.id}
+                        onClick={() => onSelectJob(job)}
+                        className={`border-b border-slate-300 cursor-pointer active:bg-emerald-50 ${
+                          idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
+                        }`}
+                      >
+                        <td className="py-2 px-1.5 border-r border-slate-300 align-top">
+                          <div className="font-mono font-bold text-[10px] bg-slate-800 text-white px-1 py-0.5 rounded inline-block tabular-nums">
+                            {job.queueNumber}
                           </div>
-                        )}
-                      </td>
+                          <div className="font-mono text-[10px] font-semibold text-slate-800 mt-1 tabular-nums truncate">
+                            {formatShortDate(job.appointmentDate)}
+                          </div>
+                          <div className="font-mono text-[10px] text-slate-500 tabular-nums truncate">
+                            {job.appointmentTime || '-'}
+                          </div>
+                        </td>
 
-                      {/* ข้อมูลลูกค้า & ที่อยู่ */}
-                      <td className="py-2 px-3 border-r border-slate-200">
-                        <div className="font-bold text-slate-900 flex items-center gap-1">
-                          <User className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate">{job.customer.name}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
-                          {job.customer.address || '-'}
-                        </div>
-                      </td>
-
-                      {/* ช่องทางการติดต่อ & แผนที่ */}
-                      <td
-                        className="py-2 px-3 border-r border-slate-200 text-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* Call */}
-                          <a
-                            href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
-                            className="p-1.5 rounded-md bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 transition-colors"
-                            title={`โทร: ${job.customer.phone}`}
+                        <td className="py-2 px-1.5 border-r border-slate-300 align-top overflow-hidden">
+                          <div className="font-bold text-slate-900 truncate">{job.customer.name}</div>
+                          <div
+                            className={`font-mono text-[10px] truncate tabular-nums ${
+                              hasPhone ? 'text-slate-600' : 'text-slate-400'
+                            }`}
                           >
-                            <Phone className="w-3.5 h-3.5" />
-                          </a>
+                            {phoneText}
+                          </div>
+                          <div className="text-[11px] font-semibold text-blue-900 line-clamp-1 mt-0.5">
+                            {job.product}
+                          </div>
+                        </td>
 
-                          {/* Line */}
-                          {job.customer.lineId && (
-                            <a
-                              href={`https://line.me/ti/p/~${job.customer.lineId.replace('@', '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1.5 rounded-md bg-slate-100 hover:bg-emerald-100 text-slate-700 transition-colors"
-                              title={`LINE: ${job.customer.lineId}`}
-                            >
-                              <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                            </a>
-                          )}
-
-                          {/* SMS */}
-                          {cleanSmsPhone(job.customer.phone) && (
-                            <a
-                              href={buildDeviceSmsUri(
-                                job.customer.phone,
-                                formatCustomerStatusSms(job, job.status, settings)
-                              )}
-                              onClick={() =>
-                                addNotificationLog({
-                                  channel: 'sms',
-                                  recipientPhone: job.customer.phone,
-                                  type: 'sms_customer',
-                                  jobQueueNumber: job.queueNumber,
-                                  jobProduct: job.product,
-                                  status: job.status,
-                                  success: true,
-                                  message: `เปิดแอป SMS แจ้งคิว ${job.queueNumber} ถึง ${job.customer.phone}`,
-                                  responseMessage: 'Quick SMS from Queue Table',
-                                })
-                              }
-                              className={`p-1.5 rounded-md transition-colors ${
-                                !job.customer.lineId
-                                  ? 'bg-sky-100 hover:bg-sky-200 text-sky-700'
-                                  : 'bg-slate-100 hover:bg-sky-100 text-sky-600'
-                              }`}
-                              title={
-                                !job.customer.lineId
-                                  ? `ส่ง SMS แจ้งคิวงาน (ลูกค้าไม่มี LINE): ${job.customer.phone}`
-                                  : `ส่ง SMS: ${job.customer.phone}`
-                              }
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                            </a>
-                          )}
-
-                          {/* Map Pin */}
-                          <a
-                            href={getMapsUrl(job.customer.address, job.customer.mapCoordinates)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-md bg-slate-100 hover:bg-rose-100 text-slate-700 transition-colors"
-                            title="เปิด Google Maps นำทาง"
-                          >
-                            <MapPin className="w-3.5 h-3.5 text-rose-500" />
-                          </a>
-                        </div>
-                        <div className="font-mono text-[10px] text-slate-600 mt-0.5">
-                          {job.customer.phone}
-                        </div>
-                      </td>
-
-                      {/* ประเมินค่าซ่อม (บาท) */}
-                      <td className="py-2 px-3 border-r border-slate-200 text-right font-mono font-medium text-slate-700 tabular-nums">
-                        ฿{job.estimatedCost?.toLocaleString() || '0'}
-                      </td>
-
-                      {/* ค่าซ่อมจริง (บาท) */}
-                      <td className="py-2 px-3 border-r border-slate-200 text-right font-mono tabular-nums">
-                        {job.actualCost !== null ? (
-                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                            ฿{job.actualCost.toLocaleString()}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
-
-                      {/* สถานะ (เดินหน้าทางเดียว + ปุ่มแก้ไขสถานะ) */}
-                      <td
-                        className="py-2 px-2.5 border-r border-slate-200 text-center min-w-[140px]"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex flex-col items-center gap-1">
+                        <td
+                          className="py-2 px-1 border-r border-slate-300 align-top text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <span
-                            className={`inline-flex items-center justify-center w-full max-w-[125px] text-[11px] font-bold px-2 py-0.5 rounded border ${getStatusBadge(
+                            className={`inline-block w-full truncate text-[10px] font-bold px-1 py-0.5 rounded border ${getStatusBadge(
                               job.status
                             )}`}
                           >
                             {job.status}
                           </span>
+                          <div
+                            className={`font-mono text-[10px] font-bold mt-1 tabular-nums ${
+                              job.actualCost !== null ? 'text-emerald-700' : 'text-slate-600'
+                            }`}
+                          >
+                            ฿{(displayCost || 0).toLocaleString()}
+                          </div>
+                          {nextStatus && (
+                            <button
+                              type="button"
+                              onClick={() => onStatusChange(job.id, nextStatus, false)}
+                              className="mt-1 w-full py-0.5 px-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[9px] font-bold truncate cursor-pointer"
+                            >
+                              → {nextStatus}
+                            </button>
+                          )}
+                        </td>
 
-                          <div className="flex items-center justify-center gap-1 w-full max-w-[130px]">
-                            {getNextForwardStatus(job.status) && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = getNextForwardStatus(job.status);
-                                  if (next) {
-                                    onStatusChange(job.id, next, false);
-                                  }
-                                }}
-                                className="flex-1 inline-flex items-center justify-center gap-0.5 px-1.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
-                                title={`เดินหน้าสถานะเป็น "${getNextForwardStatus(job.status)}" ทันที`}
+                        <td
+                          className="py-2 px-1 align-top text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex flex-col items-center gap-1">
+                            {hasPhone && (
+                              <a
+                                href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
+                                className="w-7 h-7 flex items-center justify-center rounded bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                title={`โทร: ${job.customer.phone}`}
                               >
-                                <ArrowRight className="w-2.5 h-2.5 shrink-0" />
-                                <span className="truncate">{getNextForwardStatus(job.status)}</span>
-                              </button>
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
                             )}
-
                             <button
                               type="button"
                               onClick={() => setEditingStatusJob(job)}
-                              className="inline-flex items-center justify-center gap-0.5 px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded text-[10px] font-bold transition-colors cursor-pointer whitespace-nowrap"
-                              title="แก้ไขสถานะงาน"
+                              className="w-7 h-7 flex items-center justify-center rounded bg-amber-50 text-amber-800 border border-amber-200 cursor-pointer"
+                              title="แก้ไขสถานะ"
                             >
-                              <Edit3 className="w-2.5 h-2.5 shrink-0" />
-                              <span>แก้ไขสถานะ</span>
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                        </div>
-                        {job.assignedUserName && (
-                          <div className="text-[10px] text-slate-500 mt-0.5 truncate">
-                            ช่าง: {job.assignedUserName.split(' ')[0]}
-                          </div>
-                        )}
-                      </td>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-                      {/* ระยะประกัน */}
-                      <td className="py-2 px-3 border-r border-slate-200 text-center">
-                        {ws.status === 'none' && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 font-medium text-[11px]">
-                            ไม่มีประกัน (0 วัน)
-                          </span>
-                        )}
-                        {ws.status === 'valid' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-medium text-[11px]">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-                            <span>เหลือ {ws.daysRemaining} วัน</span>
-                          </span>
-                        )}
-                        {ws.status === 'warning' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] animate-pulse">
-                            <ShieldAlert className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span>ใกล้หมด ({ws.daysRemaining} ว.)</span>
-                          </span>
-                        )}
-                        {ws.status === 'expired' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-semibold text-[11px]">
-                            <ShieldX className="w-3 h-3 text-red-600 shrink-0" />
-                            <span>หมดประกัน</span>
-                          </span>
-                        )}
-                        {ws.status !== 'none' && (
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {job.warrantyDays} วัน ({job.warrantyEndDate})
-                          </div>
-                        )}
-                      </td>
+          {/* Desktop Viewport-Fitting Excel Grid (md+, table-fixed w-full, ZERO horizontal scroll) */}
+          <div className="hidden md:block max-h-[72vh] overflow-y-auto relative">
+            <table className="w-full table-fixed text-left border-collapse text-xs select-text">
+              <thead className="sticky top-0 z-20 bg-slate-100">
+                <tr className="border-b-2 border-slate-300 text-slate-700 font-bold text-[11px]">
+                  <th className="w-10 py-2 px-1.5 border-r border-slate-300 text-center bg-slate-200 text-slate-600">
+                    #
+                  </th>
+                  <th className="w-[13%] py-2 px-2.5 border-r border-slate-300">คิว / นัดหมาย</th>
+                  <th className="w-[22%] py-2 px-2.5 border-r border-slate-300">อุปกรณ์ / อาการ</th>
+                  <th className="w-[22%] py-2 px-2.5 border-r border-slate-300">ลูกค้า / ติดต่อ</th>
+                  <th className="w-[11%] py-2 px-2.5 border-r border-slate-300 text-right">
+                    ราคา (฿)
+                  </th>
+                  <th className="w-[14%] py-2 px-2 border-r border-slate-300 text-center">
+                    สถานะงาน
+                  </th>
+                  <th className="w-[10%] py-2 px-2 border-r border-slate-300 text-center">
+                    ประกัน
+                  </th>
+                  <th className="w-[88px] py-2 px-1.5 text-center bg-slate-100">จัดการ</th>
+                </tr>
+              </thead>
 
-                      {/* จัดการ (Actions - เปิด Pop-up รูปแยกต่างหาก ไม่แสดงรูปในตาราง) */}
-                      <td
-                        className="py-2 px-2.5 text-center"
-                        onClick={(e) => e.stopPropagation()}
+              <tbody>
+                {filteredJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-14 text-center text-slate-400 bg-white">
+                      <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                      <p className="font-semibold text-slate-700 text-sm">
+                        ไม่พบข้อมูลงานซ่อมตามตัวกรองนี้
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        ลองเปลี่ยนคำค้นหา หรือกดเลือกแท็บ &quot;ทั้งหมด&quot;
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredJobs.map((job, idx) => {
+                    const ws = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
+                    const hasPhone = hasCustomerPhone(job.customer);
+                    const phoneText = formatCustomerPhone(job.customer);
+                    const nextStatus = getNextForwardStatus(job.status);
+                    const photosCount = getTotalJobPhotosCount(job);
+
+                    return (
+                      <tr
+                        key={job.id}
+                        onClick={() => onSelectJob(job)}
+                        className={`border-b border-slate-300 transition-colors cursor-pointer hover:bg-emerald-50/60 ${
+                          idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
+                        }`}
                       >
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => onOpenStatusPhotos(job)}
-                            className="relative p-1 rounded text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
-                            title={`ถ่ายรูป/แนบรูปและวิดีโอแต่ละสถานะ (${getTotalJobPhotosCount(job)} ไฟล์)`}
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            {getTotalJobPhotosCount(job) > 0 && (
-                              <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-blue-600 text-white text-[8px] font-mono font-bold flex items-center justify-center">
-                                {getTotalJobPhotosCount(job)}
-                              </span>
-                            )}
-                          </button>
-                          {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
-                            <>
+                        {/* # */}
+                        <td className="py-2 px-1.5 border-r border-slate-300 text-center font-mono text-[11px] text-slate-500 bg-slate-100/80 tabular-nums align-top">
+                          {idx + 1}
+                        </td>
+
+                        {/* คิว / นัดหมาย */}
+                        <td className="py-2 px-2.5 border-r border-slate-300 align-top">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-mono font-bold text-[11px] bg-slate-800 text-white px-1.5 py-0.5 rounded tabular-nums">
+                              {job.queueNumber}
+                            </span>
+                            {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' && (
                               <button
                                 type="button"
-                                onClick={() => setReschedulingJob(job)}
-                                className="p-1 rounded text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 transition-colors cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReschedulingJob(job);
+                                }}
+                                className="p-0.5 rounded text-blue-600 hover:bg-blue-100 cursor-pointer"
                                 title="เปลี่ยนวัน/เวลานัดหมาย"
                               >
                                 <CalendarClock className="w-3.5 h-3.5" />
                               </button>
+                            )}
+                          </div>
+                          <div className="font-mono font-semibold text-[11px] text-slate-900 mt-1 tabular-nums truncate">
+                            {job.appointmentDate}
+                          </div>
+                          <div className="flex items-center gap-1 text-[10px] text-slate-500 font-mono tabular-nums truncate">
+                            <Clock className="w-2.5 h-2.5 shrink-0" />
+                            <span className="truncate">{job.appointmentTime || 'ไม่ระบุ'}</span>
+                          </div>
+                        </td>
+
+                        {/* อุปกรณ์ / อาการ */}
+                        <td className="py-2 px-2.5 border-r border-slate-300 align-top overflow-hidden">
+                          <div className="font-bold text-slate-900 truncate" title={job.product}>
+                            {job.product}
+                          </div>
+                          {(job.symptoms || job.jobDetails) && (
+                            <div
+                              className="text-[11px] text-slate-600 line-clamp-2 mt-0.5 break-words"
+                              title={job.symptoms || job.jobDetails}
+                            >
+                              {job.symptoms ? `อาการ: ${job.symptoms}` : job.jobDetails}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* ลูกค้า / ติดต่อ */}
+                        <td
+                          className="py-2 px-2.5 border-r border-slate-300 align-top overflow-hidden"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="font-bold text-slate-900 truncate" title={job.customer.name}>
+                            {job.customer.name}
+                          </div>
+                          <div className="flex items-center justify-between gap-1 mt-0.5">
+                            <span
+                              className={`font-mono text-[11px] truncate tabular-nums ${
+                                hasPhone ? 'text-slate-700 font-medium' : 'text-slate-400'
+                              }`}
+                            >
+                              {phoneText}
+                            </span>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {hasPhone && (
+                                <a
+                                  href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
+                                  className="p-1 rounded bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 transition-colors"
+                                  title={`โทร: ${job.customer.phone}`}
+                                >
+                                  <Phone className="w-3 h-3" />
+                                </a>
+                              )}
+                              {job.customer.lineId && (
+                                <a
+                                  href={`https://line.me/ti/p/~${job.customer.lineId.replace('@', '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 rounded bg-slate-100 hover:bg-emerald-100 text-emerald-600 transition-colors"
+                                  title={`LINE: ${job.customer.lineId}`}
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                </a>
+                              )}
+                              {hasPhone && cleanSmsPhone(job.customer.phone) && (
+                                <a
+                                  href={buildDeviceSmsUri(
+                                    job.customer.phone,
+                                    formatCustomerStatusSms(job, job.status, settings)
+                                  )}
+                                  onClick={() =>
+                                    addNotificationLog({
+                                      channel: 'sms',
+                                      recipientPhone: job.customer.phone,
+                                      type: 'sms_customer',
+                                      jobQueueNumber: job.queueNumber,
+                                      jobProduct: job.product,
+                                      status: job.status,
+                                      success: true,
+                                      message: `เปิดแอป SMS แจ้งคิว ${job.queueNumber} ถึง ${job.customer.phone}`,
+                                      responseMessage: 'Quick SMS from Queue Table',
+                                    })
+                                  }
+                                  className="p-1 rounded bg-slate-100 hover:bg-sky-100 text-sky-600 transition-colors"
+                                  title={`ส่ง SMS: ${job.customer.phone}`}
+                                >
+                                  <MessageSquare className="w-3 h-3" />
+                                </a>
+                              )}
+                              {job.customer.address && (
+                                <a
+                                  href={getMapsUrl(job.customer.address, job.customer.mapCoordinates)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 rounded bg-slate-100 hover:bg-rose-100 text-rose-500 transition-colors"
+                                  title="เปิด Google Maps นำทาง"
+                                >
+                                  <MapPin className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                          {job.customer.address && (
+                            <div
+                              className="text-[10px] text-slate-500 truncate mt-0.5"
+                              title={job.customer.address}
+                            >
+                              {job.customer.address}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* ราคา (จริง / ประเมิน) */}
+                        <td className="py-2 px-2.5 border-r border-slate-300 text-right font-mono tabular-nums align-top">
+                          {job.actualCost !== null ? (
+                            <div className="font-bold text-emerald-700">
+                              ฿{job.actualCost.toLocaleString()}
+                            </div>
+                          ) : (
+                            <div className="text-slate-400">-</div>
+                          )}
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            ปม. ฿{(job.estimatedCost || 0).toLocaleString()}
+                          </div>
+                        </td>
+
+                        {/* สถานะงาน */}
+                        <td
+                          className="py-2 px-2 border-r border-slate-300 text-center align-top"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex flex-col items-center gap-1">
+                            <span
+                              className={`inline-block w-full truncate text-[11px] font-bold px-1.5 py-0.5 rounded border ${getStatusBadge(
+                                job.status
+                              )}`}
+                            >
+                              {job.status}
+                            </span>
+
+                            <div className="flex items-center justify-center gap-1 w-full">
+                              {nextStatus && (
+                                <button
+                                  type="button"
+                                  onClick={() => onStatusChange(job.id, nextStatus, false)}
+                                  className="flex-1 min-w-0 inline-flex items-center justify-center gap-0.5 px-1 py-0.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-[10px] font-bold cursor-pointer truncate"
+                                  title={`เดินหน้าสถานะเป็น "${nextStatus}"`}
+                                >
+                                  <ArrowRight className="w-2.5 h-2.5 shrink-0" />
+                                  <span className="truncate">{nextStatus}</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setEditingStatusJob(job)}
+                                className="px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded text-[10px] font-bold cursor-pointer shrink-0"
+                                title="แก้ไขสถานะงาน"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* ประกัน */}
+                        <td className="py-2 px-2 border-r border-slate-300 text-center align-top">
+                          {ws.status === 'none' && (
+                            <span className="text-[11px] text-slate-500 font-medium">ไม่มี</span>
+                          )}
+                          {ws.status === 'valid' && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-semibold text-[10px] tabular-nums">
+                              <ShieldCheck className="w-3 h-3 shrink-0" />
+                              <span>{ws.daysRemaining} ว.</span>
+                            </span>
+                          )}
+                          {ws.status === 'warning' && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] tabular-nums">
+                              <ShieldAlert className="w-3 h-3 shrink-0" />
+                              <span>{ws.daysRemaining} ว.</span>
+                            </span>
+                          )}
+                          {ws.status === 'expired' && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-semibold text-[10px]">
+                              <ShieldX className="w-3 h-3 shrink-0" />
+                              <span>หมด</span>
+                            </span>
+                          )}
+                          {ws.status !== 'none' && (
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5 tabular-nums truncate">
+                              {formatShortDate(job.warrantyEndDate)}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* จัดการ */}
+                        <td
+                          className="py-2 px-1.5 text-center align-top"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="grid grid-cols-2 gap-1 justify-items-center">
+                            <button
+                              type="button"
+                              onClick={() => onOpenStatusPhotos(job)}
+                              className="relative p-1 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
+                              title={`รูป/วิดีโอ (${photosCount} ไฟล์)`}
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              {photosCount > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 min-w-[12px] h-[12px] px-0.5 rounded-full bg-blue-600 text-white text-[8px] font-mono font-bold flex items-center justify-center">
+                                  {photosCount}
+                                </span>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onPrintJob(job)}
+                              className="p-1 rounded text-slate-600 hover:bg-slate-100 cursor-pointer"
+                              title="พิมพ์ใบเสร็จ/ส่งมอบ"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => onEditJob(job)}
+                                className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-blue-50 cursor-pointer"
+                                title="แก้ไขงาน"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {job.status !== 'ปิดงาน' && job.status !== 'ยกเลิก' ? (
                               <button
                                 type="button"
                                 onClick={() => setCancellingJob(job)}
-                                className="p-1 rounded text-rose-600 hover:text-rose-800 hover:bg-rose-50 transition-colors cursor-pointer"
+                                className="p-1 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
                                 title="ยกเลิกงาน"
                               >
                                 <Ban className="w-3.5 h-3.5" />
                               </button>
-                            </>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onSelectJob(job)}
-                            className="p-1 rounded text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
-                            title="ดูรายละเอียดงาน"
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onPrintJob(job)}
-                            className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-                            title="พิมพ์ใบเสร็จ/ส่งมอบ"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                          </button>
-                          {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => onEditJob(job)}
-                              className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                              title="แก้ไขงาน"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Excel Status Bar (Sum / Count summary footer) */}
-        <div className="bg-slate-100 border-t border-slate-300 px-4 py-2 flex flex-wrap items-center justify-between text-xs text-slate-600 font-mono select-none">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-slate-800">
-              จำนวนงาน (COUNT): {filteredJobs.length}
-            </span>
-            <span>•</span>
-            <span>
-              ปิดงานแล้ว: {filteredJobs.filter((j) => j.status === 'ปิดงาน').length}
-            </span>
-            <span>•</span>
-            <span>
-              กำลังดำเนินการ:{' '}
-              {
-                filteredJobs.filter(
-                  (j) =>
-                    j.status === 'รับงาน' ||
-                    j.status === 'กำลังไป' ||
-                    j.status === 'กำลังซ่อม'
-                ).length
-              }
-            </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onSelectJob(job)}
+                                className="p-1 rounded text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer"
+                                title="ดูรายละเอียดงาน"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div>
-              <span>รวมประเมิน: </span>
-              <strong className="text-slate-900 font-bold">
-                ฿{totalEstimatedCost.toLocaleString()}
-              </strong>
+          {/* Excel Status Bar (SUM / COUNT footer) */}
+          <div className="bg-slate-100 border-t border-slate-300 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 font-mono tabular-nums select-none">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="font-bold text-slate-900">COUNT: {filteredJobs.length} งาน</span>
+              <span className="text-slate-400">|</span>
+              <span>ปิดงาน: {filteredJobs.filter((j) => j.status === 'ปิดงาน').length}</span>
             </div>
-            <div>
-              <span>รวมค่าซ่อมจริง (SUM): </span>
-              <strong className="text-emerald-800 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                ฿{totalActualCost.toLocaleString()}
-              </strong>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <span>
+                ประเมิน: <strong className="text-slate-900">฿{totalEstimatedCost.toLocaleString()}</strong>
+              </span>
+              <span>
+                SUM จริง:{' '}
+                <strong className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  ฿{totalActualCost.toLocaleString()}
+                </strong>
+              </span>
             </div>
           </div>
         </div>
-      </div>
-      </>
       ) : (
-        /* Sheet 2: ตาราง Excel แยกสำหรับสรุปงานที่ปิดแล้ว */
+        /* Sheet 2: ตาราง Excel สรุปงานที่ปิดแล้ว */
         <div className="space-y-3">
-          {/* Closed Jobs Summary KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <div className="bg-white rounded-xl border border-indigo-200 p-3 flex items-center justify-between shadow-2xs">
+            <div className="bg-white rounded-xl border border-indigo-200 p-3 flex items-center justify-between">
               <div>
                 <span className="text-[11px] font-semibold text-slate-500 block">
                   จำนวนงานที่ปิดแล้ว (COUNT)
                 </span>
-                <strong className="text-xl font-mono font-black text-indigo-800 tabular-nums">
+                <strong className="text-xl font-mono font-bold text-indigo-800 tabular-nums">
                   {filteredClosedJobs.length} งาน
                 </strong>
               </div>
@@ -1370,16 +1067,16 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-emerald-200 p-3 flex items-center justify-between shadow-2xs">
+            <div className="bg-white rounded-xl border border-emerald-200 p-3 flex items-center justify-between">
               <div>
                 <span className="text-[11px] font-semibold text-slate-500 block">
-                  ยอดค่าซ่อมจริงรวมทั้งหมด (SUM)
+                  ยอดค่าซ่อมจริงรวม (SUM)
                 </span>
-                <strong className="text-xl font-mono font-black text-emerald-700 tabular-nums">
+                <strong className="text-xl font-mono font-bold text-emerald-700 tabular-nums">
                   ฿{closedTotalActual.toLocaleString()}
                 </strong>
               </div>
-              <div className="text-right text-[10px] text-slate-500 font-mono">
+              <div className="text-right text-[11px] text-slate-500 font-mono tabular-nums">
                 <div>ประเมินรวม</div>
                 <div className="font-bold text-slate-700">
                   ฿{closedTotalEstimated.toLocaleString()}
@@ -1387,12 +1084,12 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-blue-200 p-3 flex items-center justify-between shadow-2xs">
+            <div className="bg-white rounded-xl border border-blue-200 p-3 flex items-center justify-between">
               <div>
                 <span className="text-[11px] font-semibold text-slate-500 block">
-                  งานที่ยังอยู่ในระยะประกัน
+                  ยังอยู่ในระยะประกัน
                 </span>
-                <strong className="text-xl font-mono font-black text-blue-700 tabular-nums">
+                <strong className="text-xl font-mono font-bold text-blue-700 tabular-nums">
                   {closedValidWarrantyCount} งาน
                 </strong>
               </div>
@@ -1402,378 +1099,266 @@ export const QueueTable: React.FC<QueueTableProps> = ({
             </div>
           </div>
 
-          {/* Sheet 2 Mobile Card Layout (< md) */}
-          <div className="md:hidden space-y-2.5">
-            <div className="bg-gradient-to-r from-indigo-800 to-blue-800 text-white rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs shadow-xs">
+          <div className="bg-white rounded-xl border border-indigo-300 shadow-xs overflow-hidden">
+            <div className="bg-indigo-800 text-white px-3.5 py-2 flex items-center justify-between text-xs border-b border-indigo-900">
               <div className="flex items-center gap-2 font-semibold min-w-0">
                 <FileSpreadsheet className="w-4 h-4 text-indigo-200 shrink-0" />
-                <span className="truncate">สรุปงานที่ปิดแล้ว</span>
+                <span className="truncate">ตาราง Excel สรุปงานที่ปิดแล้ว</span>
               </div>
-              <span className="font-mono text-[11px] text-indigo-100 shrink-0 tabular-nums">
-                {filteredClosedJobs.length} งาน • ฿{closedTotalActual.toLocaleString()}
-              </span>
-            </div>
-
-            {filteredClosedJobs.length === 0 ? (
-              <div className="bg-white rounded-xl border border-indigo-200 p-8 text-center text-slate-400">
-                <Award className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                <p className="font-semibold text-slate-700 text-sm">
-                  ยังไม่มีรายการงานที่ปิดแล้วในตารางสรุป
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  เมื่ออัปเดตงานใดเป็นสถานะ &quot;ปิดงาน&quot; ระบบจะจัดเก็บลงตารางนี้อัตโนมัติ
-                </p>
-              </div>
-            ) : (
-              filteredClosedJobs.map((job) => {
-                const ws = getWarrantyInfo(job);
-                const closedDateLabel = job.closedAt || job.appointmentDate;
-                const photosCount = getTotalJobPhotosCount(job);
-
-                return (
-                  <div
-                    key={job.id}
-                    onClick={() => onSelectJob(job)}
-                    className="bg-white rounded-xl border border-indigo-200/80 shadow-2xs p-3.5 space-y-2.5 hover:border-indigo-400 active:bg-indigo-50/40 transition-colors cursor-pointer"
-                  >
-                    {/* Top Row: Queue + Closed Status + Dates */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                        <span className="font-mono font-bold text-xs bg-indigo-800 text-white px-2 py-0.5 rounded shadow-2xs">
-                          {job.queueNumber}
-                        </span>
-                        <span className="inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
-                          ปิดงาน
-                        </span>
-                        {job.assignedUserName && (
-                          <span className="text-[11px] text-slate-500 font-medium truncate">
-                            • ช่าง {job.assignedUserName.split(' ')[0]}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="text-right shrink-0 font-mono text-[11px]">
-                        <div className="font-bold text-indigo-800">
-                          ปิด: {closedDateLabel}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          นัด: {job.appointmentDate}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Customer Name & Phone */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 font-bold text-sm text-slate-900">
-                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{job.customer.name}</span>
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-600 mt-0.5">
-                          {job.customer.phone}
-                        </div>
-                      </div>
-
-                      <div
-                        className="flex items-center gap-1.5 shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <a
-                          href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
-                          className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-700 transition-colors"
-                          title={`โทร: ${job.customer.phone}`}
-                        >
-                          <Phone className="w-4 h-4" />
-                        </a>
-                      </div>
-                    </div>
-
-                    {/* Product, Details & Closing Notes */}
-                    <div className="border-t border-slate-100 pt-2 space-y-1">
-                      <div className="text-xs font-bold text-slate-900 break-words">
-                        {job.product}
-                      </div>
-                      {(job.jobDetails || job.symptoms) && (
-                        <div className="text-xs text-slate-600 line-clamp-2 break-words">
-                          {job.jobDetails || job.symptoms}
-                        </div>
-                      )}
-                      {job.notes && (
-                        <div className="text-[11px] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 inline-block max-w-full break-words">
-                          หมายเหตุ: {job.notes}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Financial & Warranty Strip */}
-                    <div className="border-t border-slate-100 pt-2 grid grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <div className="text-[10px] text-slate-500">ประเมิน</div>
-                        <div className="font-mono text-slate-700 tabular-nums">
-                          ฿{(job.estimatedCost || 0).toLocaleString()}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-slate-500">ค่าซ่อมจริง</div>
-                        <div className="font-mono font-bold text-emerald-700 tabular-nums">
-                          ฿{(job.actualCost ?? 0).toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[10px] text-slate-500">ประกัน</div>
-                        <div className="text-[11px] font-semibold">
-                          {job.warrantyDays === 0 ? (
-                            <span className="text-slate-600">ไม่มี (0 วัน)</span>
-                          ) : ws.status === 'expired' ? (
-                            <span className="text-red-700 inline-flex items-center justify-end gap-0.5">
-                              <ShieldX className="w-3 h-3 shrink-0" />
-                              <span>หมดประกัน</span>
-                            </span>
-                          ) : (
-                            <span className="text-emerald-700 inline-flex items-center justify-end gap-0.5">
-                              <ShieldCheck className="w-3 h-3 shrink-0" />
-                              <span>เหลือ {ws.daysRemaining} ว.</span>
-                            </span>
-                          )}
-                        </div>
-                        {job.warrantyDays > 0 && (
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            ถึง {job.warrantyEndDate}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions Row */}
-                    <div
-                      className="border-t border-slate-100 pt-2 flex items-center justify-between gap-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onOpenStatusPhotos(job)}
-                          className="relative min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold transition-colors cursor-pointer"
-                        >
-                          <Camera className="w-3.5 h-3.5" />
-                          <span>รูปภาพ ({photosCount})</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onPrintJob(job)}
-                          className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition-colors cursor-pointer"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>พิมพ์</span>
-                        </button>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => onSelectJob(job)}
-                        className="min-h-[36px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-indigo-700 hover:bg-indigo-50 text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        <span>รายละเอียด</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-
-            {/* Mobile Closed Summary Bar */}
-            <div className="bg-indigo-50 rounded-xl border border-indigo-200 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-indigo-900">
-              <span className="font-bold">
-                ปิดแล้ว {filteredClosedJobs.length} งาน • ในประกัน {closedValidWarrantyCount}
-              </span>
-              <div className="flex items-center gap-3 tabular-nums">
-                <span>ประเมิน ฿{closedTotalEstimated.toLocaleString()}</span>
-                <strong className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
-                  จริง ฿{closedTotalActual.toLocaleString()}
-                </strong>
-              </div>
-            </div>
-          </div>
-
-          {/* Dedicated Closed Jobs Excel Table (Desktop md+) */}
-          <div className="hidden md:block bg-white rounded-xl border border-indigo-300 shadow-sm overflow-hidden">
-            <div className="bg-gradient-to-r from-indigo-800 to-blue-800 text-white px-4 py-2.5 flex items-center justify-between text-xs border-b border-indigo-900">
-              <div className="flex items-center gap-2 font-semibold">
-                <FileSpreadsheet className="w-4 h-4 text-indigo-200" />
-                <span className="tracking-wide">
-                  ตาราง Excel สรุปงานที่ปิดแล้ว (Closed Jobs Summary)
-                </span>
-              </div>
-              <div className="font-mono text-[11px] text-indigo-200 flex items-center gap-3">
-                <span>แสดง {filteredClosedJobs.length} แถว</span>
-                <span>|</span>
-                <span>รวมค่าซ่อมจริง ฿{closedTotalActual.toLocaleString()}</span>
+              <div className="font-mono text-[11px] text-indigo-100 shrink-0 tabular-nums">
+                {filteredClosedJobs.length} แถว · ฿{closedTotalActual.toLocaleString()}
               </div>
             </div>
 
-            <div className="overflow-x-auto max-h-[70vh] relative">
-              <table className="w-full text-left border-collapse text-xs select-text">
-                <thead className="sticky top-0 z-20 bg-indigo-50 shadow-xs">
-                  <tr className="border-b-2 border-indigo-200 text-slate-700 font-bold uppercase tracking-wider text-[11px]">
-                    <th className="py-2 px-2.5 border-r border-indigo-200 text-center w-12 bg-indigo-100 text-indigo-800">
-                      #
+            {/* Sheet 2 Mobile Viewport-Fitting Excel Grid (< md) */}
+            <div className="md:hidden">
+              <table className="w-full table-fixed border-collapse text-[11px]">
+                <thead>
+                  <tr className="bg-indigo-50 border-b border-indigo-200 text-slate-700 font-bold">
+                    <th className="w-[22%] py-2 px-1.5 border-r border-indigo-200 text-left">
+                      คิว / ปิด
                     </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[85px] text-center">
-                      เลขคิวงาน
+                    <th className="w-[38%] py-2 px-1.5 border-r border-indigo-200 text-left">
+                      ลูกค้า / สินค้า
                     </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[130px]">
-                      วันที่ปิดงาน / นัด
+                    <th className="w-[25%] py-2 px-1.5 border-r border-indigo-200 text-right">
+                      จริง / ประกัน
                     </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[200px]">
-                      สินค้า &amp; รายละเอียดปิดงาน
-                    </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[160px]">
-                      ลูกค้า &amp; เบอร์โทร
-                    </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 min-w-[110px]">
-                      ช่างผู้รับผิดชอบ
-                    </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 text-right min-w-[95px]">
-                      ประเมิน (฿)
-                    </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 text-right min-w-[110px] bg-emerald-50 text-emerald-900">
-                      ค่าซ่อมจริง (฿)
-                    </th>
-                    <th className="py-2.5 px-3 border-r border-indigo-200 text-center min-w-[155px]">
-                      ระยะประกัน &amp; หมดอายุ
-                    </th>
-                    <th className="py-2.5 px-3 min-w-[110px] text-center bg-indigo-50">
-                      จัดการ
-                    </th>
+                    <th className="w-[15%] py-2 px-1 text-center">จัดการ</th>
                   </tr>
                 </thead>
-
-                <tbody className="divide-y divide-slate-200">
+                <tbody>
                   {filteredClosedJobs.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-400 bg-white">
-                        <Award className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                        <p className="font-semibold text-slate-700 text-sm">
-                          ยังไม่มีรายการงานที่ปิดแล้วในตารางสรุป
-                        </p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          เมื่ออัปเดตงานใดเป็นสถานะ &quot;ปิดงาน&quot; พร้อมใส่ค่าซ่อมและระยะประกัน ระบบจะจัดเก็บลงตารางนี้อัตโนมัติ
+                      <td colSpan={4} className="py-10 px-4 text-center text-slate-400 bg-white">
+                        <Award className="w-7 h-7 mx-auto mb-1.5 text-slate-300" />
+                        <p className="font-semibold text-slate-700 text-xs">
+                          ยังไม่มีรายการงานที่ปิดแล้ว
                         </p>
                       </td>
                     </tr>
                   ) : (
                     filteredClosedJobs.map((job, idx) => {
-                      const ws = getWarrantyInfo(job);
-                      const isEven = idx % 2 === 0;
-                      const closedDateLabel = job.closedAt || job.appointmentDate;
+                      const ws = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
+                      const phoneText = formatCustomerPhone(job.customer);
                       return (
                         <tr
                           key={job.id}
                           onClick={() => onSelectJob(job)}
-                          className={`transition-colors cursor-pointer group hover:bg-indigo-50/60 ${
-                            isEven ? 'bg-white' : 'bg-slate-50/70'
+                          className={`border-b border-slate-200 cursor-pointer active:bg-indigo-50 ${
+                            idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
                           }`}
                         >
-                          <td className="py-2 px-2.5 border-r border-slate-200 text-center font-mono text-slate-400 text-[11px] bg-slate-100/60">
-                            {idx + 1}
-                          </td>
-                          <td className="py-2 px-3 border-r border-slate-200 text-center whitespace-nowrap">
-                            <span className="font-mono font-bold text-xs bg-indigo-800 text-white px-2 py-0.5 rounded shadow-2xs">
+                          <td className="py-2 px-1.5 border-r border-slate-200 align-top">
+                            <span className="font-mono font-bold text-[10px] bg-indigo-800 text-white px-1 py-0.5 rounded inline-block tabular-nums">
                               {job.queueNumber}
                             </span>
+                            <div className="font-mono text-[10px] text-indigo-800 font-semibold mt-1 tabular-nums">
+                              {formatShortDate(job.closedAt || job.appointmentDate)}
+                            </div>
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200">
-                            <div className="font-mono font-bold text-indigo-800">
+                          <td className="py-2 px-1.5 border-r border-slate-200 align-top overflow-hidden">
+                            <div className="font-bold text-slate-900 truncate">{job.customer.name}</div>
+                            <div className="font-mono text-[10px] text-slate-500 truncate tabular-nums">
+                              {phoneText}
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-700 truncate mt-0.5">
+                              {job.product}
+                            </div>
+                          </td>
+                          <td className="py-2 px-1.5 border-r border-slate-200 align-top text-right font-mono tabular-nums">
+                            <div className="font-bold text-emerald-700">
+                              ฿{(job.actualCost ?? 0).toLocaleString()}
+                            </div>
+                            <div className="text-[10px] mt-0.5 font-sans">
+                              {job.warrantyDays === 0 ? (
+                                <span className="text-slate-400">ไม่มีประกัน</span>
+                              ) : ws.status === 'expired' ? (
+                                <span className="text-red-700 font-semibold">หมดประกัน</span>
+                              ) : (
+                                <span className="text-emerald-700 font-semibold">
+                                  เหลือ {ws.daysRemaining}ว.
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td
+                            className="py-2 px-1 align-top text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => onPrintJob(job)}
+                              className="w-7 h-7 mx-auto flex items-center justify-center rounded bg-slate-100 text-slate-700 border border-slate-200 cursor-pointer"
+                              title="พิมพ์ใบเสร็จ"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Sheet 2 Desktop Viewport-Fitting Excel Grid (md+) */}
+            <div className="hidden md:block max-h-[70vh] overflow-y-auto relative">
+              <table className="w-full table-fixed text-left border-collapse text-xs select-text">
+                <thead className="sticky top-0 z-20 bg-indigo-50">
+                  <tr className="border-b-2 border-indigo-200 text-slate-700 font-bold text-[11px]">
+                    <th className="w-10 py-2 px-1.5 border-r border-indigo-200 text-center bg-indigo-100 text-indigo-800">
+                      #
+                    </th>
+                    <th className="w-[14%] py-2 px-2.5 border-r border-indigo-200">
+                      คิว / ปิดงาน
+                    </th>
+                    <th className="w-[25%] py-2 px-2.5 border-r border-indigo-200">
+                      สินค้า / รายละเอียด
+                    </th>
+                    <th className="w-[20%] py-2 px-2.5 border-r border-indigo-200">
+                      ลูกค้า / ช่าง
+                    </th>
+                    <th className="w-[14%] py-2 px-2.5 border-r border-indigo-200 text-right bg-emerald-50 text-emerald-900">
+                      จริง / ประเมิน (฿)
+                    </th>
+                    <th className="w-[15%] py-2 px-2.5 border-r border-indigo-200 text-center">
+                      ประกัน
+                    </th>
+                    <th className="w-[84px] py-2 px-1.5 text-center bg-indigo-50">จัดการ</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {filteredClosedJobs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400 bg-white">
+                        <Award className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                        <p className="font-semibold text-slate-700 text-sm">
+                          ยังไม่มีรายการงานที่ปิดแล้วในตารางสรุป
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredClosedJobs.map((job, idx) => {
+                      const ws = getWarrantyStatus(job.warrantyEndDate, job.warrantyDays);
+                      const closedDateLabel = job.closedAt || job.appointmentDate;
+                      const hasPhone = hasCustomerPhone(job.customer);
+                      const phoneText = formatCustomerPhone(job.customer);
+                      const photosCount = getTotalJobPhotosCount(job);
+
+                      return (
+                        <tr
+                          key={job.id}
+                          onClick={() => onSelectJob(job)}
+                          className={`border-b border-slate-200 transition-colors cursor-pointer hover:bg-indigo-50/60 ${
+                            idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
+                          }`}
+                        >
+                          <td className="py-2 px-1.5 border-r border-slate-200 text-center font-mono text-[11px] text-slate-400 bg-slate-100/70 tabular-nums align-top">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2 px-2.5 border-r border-slate-200 align-top">
+                            <span className="font-mono font-bold text-[11px] bg-indigo-800 text-white px-1.5 py-0.5 rounded tabular-nums">
+                              {job.queueNumber}
+                            </span>
+                            <div className="font-mono font-bold text-[11px] text-indigo-800 mt-1 tabular-nums truncate">
                               ปิด: {closedDateLabel}
                             </div>
-                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            <div className="text-[10px] text-slate-500 font-mono tabular-nums truncate">
                               นัด: {job.appointmentDate}
                             </div>
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200">
-                            <div className="font-bold text-slate-900 line-clamp-1">
+                          <td className="py-2 px-2.5 border-r border-slate-200 align-top overflow-hidden">
+                            <div className="font-bold text-slate-900 truncate" title={job.product}>
                               {job.product}
                             </div>
                             <div className="text-[11px] text-slate-600 line-clamp-1 mt-0.5">
                               {job.jobDetails || job.symptoms}
                             </div>
                             {job.notes && (
-                              <div className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200 mt-0.5 line-clamp-1 inline-block">
+                              <div className="text-[10px] text-indigo-700 truncate mt-0.5">
                                 หมายเหตุ: {job.notes}
                               </div>
                             )}
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200">
-                            <div className="font-bold text-slate-900">{job.customer.name}</div>
-                            <div className="font-mono text-[11px] text-slate-600">
-                              {job.customer.phone}
+                          <td className="py-2 px-2.5 border-r border-slate-200 align-top overflow-hidden">
+                            <div className="font-bold text-slate-900 truncate">{job.customer.name}</div>
+                            <div
+                              className={`font-mono text-[11px] truncate tabular-nums ${
+                                hasPhone ? 'text-slate-600' : 'text-slate-400'
+                              }`}
+                            >
+                              {phoneText}
+                            </div>
+                            {job.assignedUserName && (
+                              <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                                ช่าง: {job.assignedUserName}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 border-r border-slate-200 text-right font-mono tabular-nums bg-emerald-50/40 align-top">
+                            <div className="font-bold text-emerald-800">
+                              ฿{(job.actualCost ?? 0).toLocaleString()}
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              ปม. ฿{(job.estimatedCost || 0).toLocaleString()}
                             </div>
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200 text-slate-700">
-                            {job.assignedUserName || '-'}
-                          </td>
-                          <td className="py-2 px-3 border-r border-slate-200 text-right font-mono text-slate-600 tabular-nums">
-                            ฿{(job.estimatedCost || 0).toLocaleString()}
-                          </td>
-                          <td className="py-2 px-3 border-r border-slate-200 text-right font-mono tabular-nums bg-emerald-50/40">
-                            <span className="font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
-                              ฿{(job.actualCost ?? 0).toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="py-2 px-3 border-r border-slate-200 text-center">
+                          <td className="py-2 px-2.5 border-r border-slate-200 text-center align-top">
                             {job.warrantyDays === 0 ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[11px]">
-                                ไม่มีประกัน (0 วัน)
-                              </span>
+                              <span className="text-[11px] text-slate-500">ไม่มีประกัน (0 วัน)</span>
                             ) : ws.status === 'expired' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-semibold text-[11px]">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-semibold text-[11px]">
                                 <ShieldX className="w-3 h-3 shrink-0" />
                                 <span>หมดประกัน</span>
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-medium text-[11px]">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 font-medium text-[11px] tabular-nums">
                                 <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
                                 <span>เหลือ {ws.daysRemaining} วัน</span>
                               </span>
                             )}
-                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                              {job.warrantyDays} วัน (ถึง {job.warrantyEndDate})
-                            </div>
+                            {job.warrantyDays > 0 && (
+                              <div className="text-[10px] text-slate-500 font-mono mt-0.5 tabular-nums truncate">
+                                ถึง {job.warrantyEndDate}
+                              </div>
+                            )}
                           </td>
                           <td
-                            className="py-2 px-2.5 text-center"
+                            className="py-2 px-1.5 text-center align-top"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="flex items-center justify-center gap-1">
                               <button
                                 type="button"
                                 onClick={() => onOpenStatusPhotos(job)}
-                                className="relative p-1 rounded text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors cursor-pointer"
-                                title={`ดู/เพิ่มรูปภาพแต่ละสถานะ (${getTotalJobPhotosCount(job)} รูป)`}
+                                className="relative p-1 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
+                                title={`รูปภาพ (${photosCount})`}
                               >
                                 <Camera className="w-3.5 h-3.5" />
-                                {getTotalJobPhotosCount(job) > 0 && (
-                                  <span className="absolute -top-1 -right-1 min-w-[13px] h-[13px] px-0.5 rounded-full bg-blue-600 text-white text-[8px] font-mono font-bold flex items-center justify-center">
-                                    {getTotalJobPhotosCount(job)}
+                                {photosCount > 0 && (
+                                  <span className="absolute -top-0.5 -right-0.5 min-w-[12px] h-[12px] px-0.5 rounded-full bg-blue-600 text-white text-[8px] font-mono font-bold flex items-center justify-center">
+                                    {photosCount}
                                   </span>
                                 )}
                               </button>
                               <button
                                 type="button"
-                                onClick={() => onSelectJob(job)}
-                                className="p-1 rounded text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 transition-colors cursor-pointer"
-                                title="ดูรายละเอียด"
-                              >
-                                <ChevronRight className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
                                 onClick={() => onPrintJob(job)}
-                                className="p-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                                className="p-1 rounded text-slate-600 hover:bg-slate-100 cursor-pointer"
                                 title="พิมพ์ใบเสร็จ/ส่งมอบ"
                               >
                                 <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onSelectJob(job)}
+                                className="p-1 rounded text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 cursor-pointer"
+                                title="ดูรายละเอียด"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
@@ -1785,47 +1370,40 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               </table>
             </div>
 
-            {/* Excel Summary Footer */}
-            <div className="bg-indigo-50 border-t border-indigo-200 px-4 py-2.5 flex flex-wrap items-center justify-between text-xs text-indigo-900 font-mono select-none">
-              <div className="flex items-center gap-3">
-                <span className="font-bold">
-                  สรุปงานที่ปิดแล้ว (COUNT): {filteredClosedJobs.length} งาน
-                </span>
-                <span>•</span>
-                <span>อยู่ในประกัน: {closedValidWarrantyCount} งาน</span>
+            <div className="bg-indigo-50 border-t border-indigo-200 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-indigo-900 font-mono tabular-nums select-none">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="font-bold">COUNT: {filteredClosedJobs.length} งาน</span>
+                <span className="text-indigo-300">|</span>
+                <span>ในประกัน: {closedValidWarrantyCount} งาน</span>
               </div>
-              <div className="flex items-center gap-4">
-                <div>
-                  <span>รวมประเมิน: </span>
-                  <strong>฿{closedTotalEstimated.toLocaleString()}</strong>
-                </div>
-                <div>
-                  <span>รวมค่าซ่อมจริง (SUM): </span>
-                  <strong className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span>
+                  ประเมิน: <strong>฿{closedTotalEstimated.toLocaleString()}</strong>
+                </span>
+                <span>
+                  SUM จริง:{' '}
+                  <strong className="text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300">
                     ฿{closedTotalActual.toLocaleString()}
                   </strong>
-                </div>
+                </span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Explicit Edit Status Modal */}
       <EditStatusModal
         job={editingStatusJob}
         onClose={() => setEditingStatusJob(null)}
         onSaveStatus={(jobId, newStatus) => onStatusChange(jobId, newStatus, true)}
       />
 
-      {/* Reschedule Appointment Modal */}
       <RescheduleJobModal
         job={reschedulingJob}
         onClose={() => setReschedulingJob(null)}
         onConfirmReschedule={onRescheduleJob}
       />
 
-      {/* Cancel Job Confirmation Modal */}
       <CancelJobModal
         job={cancellingJob}
         onClose={() => setCancellingJob(null)}

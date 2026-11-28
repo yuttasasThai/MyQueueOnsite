@@ -33,6 +33,10 @@ import {
   LogOut,
   ShieldCheck,
   MessageSquare,
+  Link as LinkIcon,
+  FileCode,
+  Download,
+  Lock,
 } from 'lucide-react';
 import {
   ShopSettings,
@@ -76,6 +80,9 @@ interface AdminSettingsProps {
   onGoogleSignIn?: () => Promise<void> | void;
   onForceCloudBackup?: () => Promise<void> | void;
   onCloudSignOut?: () => Promise<void> | void;
+  onNavigateToCreateLink?: () => void;
+  onNavigateToSourceCode?: () => void;
+  onExitAdmin?: () => void;
 }
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({
@@ -90,6 +97,9 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
   onGoogleSignIn,
   onForceCloudBackup,
   onCloudSignOut,
+  onNavigateToCreateLink,
+  onNavigateToSourceCode,
+  onExitAdmin,
 }) => {
   const [subTab, setSubTab] = useState<'shop' | 'line_notify' | 'sms_notify'>('shop');
 
@@ -394,11 +404,62 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
 
         {!isAdmin && (
           <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>ตั้งค่าพื้นฐาน: เปลี่ยนไอค่อนปุ่มและข้อความหน้าปก</span>
           </div>
         )}
       </div>
+
+      {/* Admin Tools Hub (เฉพาะเมื่อเข้าสู่ระบบแอดมินผ่านรหัส + บูทหน้าจอแล้วเท่านั้น) */}
+      {isAdmin && (
+        <div className="bg-slate-900 text-white rounded-2xl border border-slate-700 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white">ศูนย์จัดการแอดมิน (Admin Console)</h3>
+              <p className="text-xs text-slate-300">
+                สร้าง Link User, ดาวน์โหลด Source Code และจัดการฐานข้อมูลคลาวด์
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onNavigateToCreateLink && (
+              <button
+                type="button"
+                onClick={onNavigateToCreateLink}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <LinkIcon className="w-3.5 h-3.5" />
+                <span>สร้าง Link User</span>
+              </button>
+            )}
+            {onNavigateToSourceCode && (
+              <button
+                type="button"
+                onClick={onNavigateToSourceCode}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <FileCode className="w-3.5 h-3.5" />
+                <span>ดาวน์โหลด Source Code</span>
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onExitAdmin && (
+              <button
+                type="button"
+                onClick={onExitAdmin}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                title="ล็อกหน้าแอดมิน (ครั้งต่อไปต้องใส่รหัสและบูทใหม่)"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>ล็อกแอดมิน</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: SHOP & BUTTON ICON SETTINGS */}
       {subTab === 'shop' && (

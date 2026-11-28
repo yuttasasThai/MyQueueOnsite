@@ -18,6 +18,7 @@ import {
   AppointmentReminderSchedule,
   downloadAppointmentIcsAlarm,
 } from '../services/appointmentAlarm';
+import { formatCustomerPhone, hasCustomerPhone } from '../services/smsNotify';
 
 interface AppointmentReminderModalProps {
   dueItems: { job: RepairJob; schedule: AppointmentReminderSchedule }[];
@@ -257,7 +258,7 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
                       </div>
                       <h4 className="font-bold text-slate-900 text-sm mt-1">{job.product}</h4>
                       <p className="text-xs text-slate-600">
-                        ลูกค้า: <strong>{job.customer.name}</strong> ({job.customer.phone})
+                        ลูกค้า: <strong>{job.customer.name}</strong> ({formatCustomerPhone(job.customer)})
                       </p>
                       <p className="text-xs text-blue-700 font-semibold mt-0.5">
                         เวลานัด: {job.appointmentDate} เวลา {job.appointmentTime}
@@ -271,13 +272,15 @@ export const AppointmentReminderModal: React.FC<AppointmentReminderModalProps> =
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <a
-                      href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1"
-                    >
-                      <Phone className="w-3.5 h-3.5" />
-                      <span>โทรหาลูกค้า</span>
-                    </a>
+                    {hasCustomerPhone(job.customer) && (
+                      <a
+                        href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>โทรหาลูกค้า</span>
+                      </a>
+                    )}
 
                     <a
                       href={getMapsUrl(job)}

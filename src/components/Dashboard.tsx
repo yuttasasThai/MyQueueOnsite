@@ -1,4 +1,4 @@
-// File: /src/components/Dashboard.tsx | Revision: Rev 15 | Version: 1.3.0 | Modified: 2026-11-13
+// File: /src/components/Dashboard.tsx | Revision: Rev 30 | Version: 1.6.1 | Modified: 2026-11-27
 import React from 'react';
 import { RepairJob, ShopSettings, UserAccount } from '../types';
 import { HeroCover } from './HeroCover';
@@ -13,9 +13,6 @@ interface DashboardProps {
   onOpenExpiredWarrantyModal?: () => void;
   onClearAllJobs?: () => void;
   isAdmin?: boolean;
-  onRequestAdminLogin?: () => void;
-  onNavigateToCreateLink?: () => void;
-  onNavigateToSourceCode?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -25,9 +22,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onOpenNewJob,
   onClearAllJobs,
   isAdmin = false,
-  onRequestAdminLogin,
-  onNavigateToCreateLink,
-  onNavigateToSourceCode,
 }) => {
   return (
     <div className="w-full flex items-center justify-center py-2 sm:py-4">
@@ -38,9 +32,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         onNavigateToQueue={(status) => onNavigateToQueue(status)}
         onClearAllJobs={onClearAllJobs}
         isAdmin={isAdmin}
-        onRequestAdminLogin={onRequestAdminLogin}
-        onNavigateToCreateLink={onNavigateToCreateLink}
-        onNavigateToSourceCode={onNavigateToSourceCode}
       />
     </div>
   );

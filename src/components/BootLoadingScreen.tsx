@@ -11,11 +11,13 @@ interface BootLoadingScreenProps {
 
 export const BootLoadingScreen: React.FC<BootLoadingScreenProps> = ({
   onComplete,
+  userName,
 }) => {
   const [progress, setProgress] = useState(0);
   const [typedText, setTypedText] = useState('');
   const fullText = 'สร้างสรรค์โดยช่างหน่อยชุมแพ';
   const [bootLogs, setBootLogs] = useState<string[]>([]);
+  const isAdminBoot = Boolean(userName && userName.includes('แอดมิน'));
 
   // 1. Typewriter effect for "สร้างสรรค์โดยช่างหน่อยชุมแพ"
   useEffect(() => {
@@ -40,7 +42,12 @@ export const BootLoadingScreen: React.FC<BootLoadingScreenProps> = ({
     const logMessages = [
       { time: 300, text: 'CORE: Initializing Onsite Repair Service v' + APP_VERSION },
       { time: 900, text: 'DATABASE: Loading offline cache & job queues... OK' },
-      { time: 1600, text: 'AUTH: Session validated - no startup password' },
+      {
+        time: 1600,
+        text: isAdminBoot
+          ? 'AUTH: Admin password verified - unlocking admin console...'
+          : 'AUTH: Session verified - launching workspace...',
+      },
       { time: 2300, text: 'MODULES: Calendar, alarms & LINE Notify ready' },
       { time: 3000, text: 'SYSTEM: Boot 100% complete. Launching app...' },
     ];

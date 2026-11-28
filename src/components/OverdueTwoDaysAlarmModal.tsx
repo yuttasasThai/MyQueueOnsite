@@ -14,6 +14,7 @@ import {
 import { RepairJob } from '../types';
 import { warrantyAlarmService } from '../services/soundAlarm';
 import { OverdueTwoDaysItem } from '../services/appointmentAlarm';
+import { formatCustomerPhone } from '../services/smsNotify';
 
 interface OverdueTwoDaysAlarmModalProps {
   overdueItems: OverdueTwoDaysItem[];
@@ -151,7 +152,7 @@ export const OverdueTwoDaysAlarmModal: React.FC<OverdueTwoDaysAlarmModalProps> =
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="font-mono">{job.customer.phone}</span>
+                    <span className="font-mono">{formatCustomerPhone(job.customer)}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />

@@ -36,6 +36,7 @@ import {
   haversineDistanceKm,
   resolveMapsApiKey,
 } from '../services/geocoding';
+import { formatCustomerPhone, hasCustomerPhone } from '../services/smsNotify';
 
 interface JobsMapViewProps {
   jobs: RepairJob[];
@@ -851,17 +852,19 @@ export const JobsMapView: React.FC<JobsMapViewProps> = ({
                           <div>
                             ลูกค้า: <strong className="text-slate-800">{selectedResolvedItem.job.customer.name}</strong>
                           </div>
-                          {selectedResolvedItem.job.customer.phone && (
-                            <div>
-                              โทร:{' '}
+                          <div>
+                            โทร:{' '}
+                            {hasCustomerPhone(selectedResolvedItem.job.customer) ? (
                               <a
                                 href={`tel:${selectedResolvedItem.job.customer.phone}`}
                                 className="text-blue-600 hover:underline font-mono"
                               >
                                 {selectedResolvedItem.job.customer.phone}
                               </a>
-                            </div>
-                          )}
+                            ) : (
+                              <span className="text-slate-400">ไม่มีเบอร์</span>
+                            )}
+                          </div>
                           <div className="text-slate-500 leading-relaxed">
                             {selectedResolvedItem.formattedAddress}
                           </div>
@@ -1024,12 +1027,14 @@ export const JobsMapView: React.FC<JobsMapViewProps> = ({
 
                       <div className="text-[11px] text-slate-600">
                         {item.job.customer.name}
-                        {item.job.customer.phone && (
-                          <>
-                            <span className="mx-1.5 text-slate-300">·</span>
-                            <span className="font-mono tabular-nums">{item.job.customer.phone}</span>
-                          </>
-                        )}
+                        <span className="mx-1.5 text-slate-300">·</span>
+                        <span
+                          className={`font-mono tabular-nums ${
+                            hasCustomerPhone(item.job.customer) ? '' : 'text-slate-400'
+                          }`}
+                        >
+                          {formatCustomerPhone(item.job.customer)}
+                        </span>
                       </div>
 
                       <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">

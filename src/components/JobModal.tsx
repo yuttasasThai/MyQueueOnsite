@@ -4,6 +4,7 @@ import {
   Wrench,
   User,
   Phone,
+  PhoneOff,
   MessageCircle,
   Facebook,
   MapPin,
@@ -24,6 +25,7 @@ interface JobModalProps {
   onClose: () => void;
   onSave: (job: RepairJob) => void;
   initialJob?: RepairJob | null;
+  defaultAppointmentDate?: string;
   users?: UserAccount[];
   repairCategories?: string[];
   technicians?: string[];
@@ -46,6 +48,7 @@ export const JobModal: React.FC<JobModalProps> = ({
   onClose,
   onSave,
   initialJob,
+  defaultAppointmentDate,
   repairCategories = [],
   technicians = [],
   nextQueueNumber,
@@ -63,6 +66,7 @@ export const JobModal: React.FC<JobModalProps> = ({
 
   // Customer states
   const [customerName, setCustomerName] = useState('');
+  const [hasPhone, setHasPhone] = useState<boolean>(true);
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerLineId, setCustomerLineId] = useState('');
   const [customerFacebook, setCustomerFacebook] = useState('');
@@ -70,7 +74,9 @@ export const JobModal: React.FC<JobModalProps> = ({
   const [mapCoordinates, setMapCoordinates] = useState('');
 
   // Appointment & Costs
-  const [appointmentDate, setAppointmentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [appointmentDate, setAppointmentDate] = useState(
+    defaultAppointmentDate || new Date().toISOString().split('T')[0]
+  );
   const [appointmentTime, setAppointmentTime] = useState('10:00 - 12:00');
   const [estimatedCost, setEstimatedCost] = useState<number | string>('');
   const [actualCost, setActualCost] = useState<number | string>('');
@@ -85,6 +91,13 @@ export const JobModal: React.FC<JobModalProps> = ({
   useEffect(() => {
     setIsStatusEditUnlocked(false);
     if (initialJob) {
+      const rawPhone = (initialJob.customer.phone || '').trim();
+      const jobHasPhone =
+        initialJob.customer.hasPhone !== false &&
+        rawPhone !== '' &&
+        rawPhone !== 'ไม่มีเบอร์' &&
+        rawPhone !== '-';
+
       setQueueNumber(initialJob.queueNumber);
       setLoggedDate(initialJob.loggedDate);
       setProduct(initialJob.product);
@@ -92,7 +105,8 @@ export const JobModal: React.FC<JobModalProps> = ({
       setJobDetails(initialJob.jobDetails);
       setSymptoms(initialJob.symptoms);
       setCustomerName(initialJob.customer.name);
-      setCustomerPhone(initialJob.customer.phone);
+      setHasPhone(jobHasPhone);
+      setCustomerPhone(jobHasPhone ? rawPhone : '');
       setCustomerLineId(initialJob.customer.lineId || '');
       setCustomerFacebook(initialJob.customer.facebook || '');
       setCustomerAddress(initialJob.customer.address || '');
@@ -113,12 +127,13 @@ export const JobModal: React.FC<JobModalProps> = ({
       setJobDetails('');
       setSymptoms('');
       setCustomerName('');
+      setHasPhone(true);
       setCustomerPhone('');
       setCustomerLineId('');
       setCustomerFacebook('');
       setCustomerAddress('');
       setMapCoordinates('');
-      setAppointmentDate(new Date().toISOString().split('T')[0]);
+      setAppointmentDate(defaultAppointmentDate || new Date().toISOString().split('T')[0]);
       setAppointmentTime('10:00 - 12:00');
       setEstimatedCost('');
       setActualCost('');
@@ -127,7 +142,7 @@ export const JobModal: React.FC<JobModalProps> = ({
       setAssignedTechName('');
       setNotes('');
     }
-  }, [initialJob, isOpen, nextQueueNumber]);
+  }, [initialJob, isOpen, nextQueueNumber, defaultAppointmentDate]);
 
   if (!isOpen) return null;
 
@@ -166,7 +181,8 @@ export const JobModal: React.FC<JobModalProps> = ({
       symptoms: symptoms.trim(),
       customer: {
         name: customerName.trim(),
-        phone: customerPhone.trim(),
+        phone: hasPhone ? customerPhone.trim() : '',
+        hasPhone,
         lineId: customerLineId.trim(),
         facebook: customerFacebook.trim(),
         address: customerAddress.trim(),
@@ -418,20 +434,59 @@ export const JobModal: React.FC<JobModalProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  เบอร์โทรศัพท์ลูกค้า *
-                </label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    required
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="081-234-5678"
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono"
-                  />
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    เบอร์โทรศัพท์ลูกค้า {hasPhone ? '*' : ''}
+                  </label>
+                  <div className="inline-flex rounded-lg bg-slate-200/80 p-0.5 border border-slate-300/70">
+                    <button
+                      type="button"
+                      onClick={() => setHasPhone(true)}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        hasPhone
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Phone className="w-3 h-3" />
+                      <span>มีเบอร์</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHasPhone(false);
+                        setCustomerPhone('');
+                      }}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        !hasPhone
+                          ? 'bg-slate-800 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <PhoneOff className="w-3 h-3" />
+                      <span>ไม่มีเบอร์</span>
+                    </button>
+                  </div>
                 </div>
+
+                {hasPhone ? (
+                  <div className="relative">
+                    <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="tel"
+                      required
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      placeholder="081-234-5678"
+                      className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-full px-3 py-2 border border-dashed border-slate-300 rounded-lg bg-slate-100 text-slate-600 text-xs flex items-center gap-2">
+                    <PhoneOff className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span>เลือก &quot;ไม่มีเบอร์&quot; — สามารถบันทึกคิวงานได้โดยไม่ต้องกรอกเบอร์โทร</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -448,7 +503,7 @@ export const JobModal: React.FC<JobModalProps> = ({
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
-                {!customerLineId.trim() && customerPhone.trim().length >= 8 && (
+                {hasPhone && !customerLineId.trim() && customerPhone.trim().length >= 8 && (
                   <p className="mt-1.5 text-[11px] text-sky-700 bg-sky-50 border border-sky-200 rounded-md px-2 py-1 flex items-center gap-1.5">
                     <MessageSquare className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                     <span>ไม่มี LINE ลูกค้า — หลังบันทึกสามารถส่ง SMS แจ้งเตือนเข้าเบอร์โทรลูกค้าได้ทันที</span>

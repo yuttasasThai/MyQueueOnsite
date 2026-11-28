@@ -16,6 +16,7 @@ import {
 import { RepairJob } from '../types';
 import { getWarrantyStatus } from '../services/storage';
 import { warrantyAlarmService } from '../services/soundAlarm';
+import { formatCustomerPhone } from '../services/smsNotify';
 
 interface ExpiredWarrantyModalProps {
   expiredJobs: RepairJob[];
@@ -189,7 +190,7 @@ export const ExpiredWarrantyModal: React.FC<ExpiredWarrantyModalProps> = ({
 
                   <div className="flex items-center gap-2 text-slate-700">
                     <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="font-mono">{job.customer.phone}</span>
+                    <span className="font-mono">{formatCustomerPhone(job.customer)}</span>
                   </div>
 
                   <div className="flex items-center gap-2 text-slate-700 sm:col-span-2">

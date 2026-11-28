@@ -55,8 +55,10 @@ import {
 import {
   cleanSmsPhone,
   formatCustomerNewJobSms,
+  formatCustomerPhone,
   formatCustomerStatusSms,
   formatCustomerRescheduleSms,
+  hasCustomerPhone,
   isSmsGatewayConfigured,
   resolveSmsSettings,
   sendSmsNotification,
@@ -251,7 +253,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
   // Send customer SMS notification (Gateway auto-send or Device native SMS app)
   const handleSendCustomerSms = async (forceDeviceSms = false) => {
-    const cleaned = cleanSmsPhone(job.customer.phone);
+    const cleaned = hasCustomerPhone(job.customer) ? cleanSmsPhone(job.customer.phone) : '';
     if (!cleaned || cleaned.length < 8) {
       setSmsResultMsg({
         success: false,
@@ -619,7 +621,13 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             </div>
             <div className="text-right">
               <span className="text-xs text-slate-500 block">เบอร์ติดต่อ:</span>
-              <span className="font-mono font-bold text-slate-900">{job.customer.phone}</span>
+              <span
+                className={`font-mono font-bold ${
+                  hasCustomerPhone(job.customer) ? 'text-slate-900' : 'text-slate-400'
+                }`}
+              >
+                {formatCustomerPhone(job.customer)}
+              </span>
             </div>
           </div>
 
@@ -630,13 +638,20 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
 
           {/* Quick Buttons for Technician Onsite */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-            <a
-              href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span>โทรหาลูกค้า</span>
-            </a>
+            {hasCustomerPhone(job.customer) ? (
+              <a
+                href={`tel:${job.customer.phone.replace(/[^0-9]/g, '')}`}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>โทรหาลูกค้า</span>
+              </a>
+            ) : (
+              <span className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-100 text-slate-400 rounded-lg text-xs font-medium">
+                <Phone className="w-3.5 h-3.5" />
+                <span>ไม่มีเบอร์โทร</span>
+              </span>
+            )}
 
             {job.customer.lineId ? (
               <a
@@ -648,7 +663,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                 <MessageCircle className="w-3.5 h-3.5" />
                 <span>ทัก LINE</span>
               </a>
-            ) : cleanSmsPhone(job.customer.phone) ? (
+            ) : hasCustomerPhone(job.customer) && cleanSmsPhone(job.customer.phone) ? (
               <button
                 type="button"
                 onClick={() =>
@@ -917,7 +932,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                     <ShieldCheck className="w-5 h-5 text-emerald-600" />
                   )}
                   {warrantyStatus.status === 'warning' && (
-                    <ShieldAlert className="w-5 h-5 text-amber-600 animate-pulse" />
+                    <ShieldAlert className="w-5 h-5 text-amber-600" />
                   )}
                   {warrantyStatus.status === 'expired' && (
                     <ShieldX className="w-5 h-5 text-red-600" />
@@ -966,9 +981,9 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
                   ส่ง SMS แจ้งเตือนคิวงานลูกค้า
                 </span>
                 <span className="text-[11px] text-slate-500">
-                  {cleanSmsPhone(job.customer.phone)
+                  {hasCustomerPhone(job.customer) && cleanSmsPhone(job.customer.phone)
                     ? `ส่งเข้าเบอร์ลูกค้า: ${job.customer.phone}`
-                    : 'กรุณาระบุเบอร์โทรลูกค้าก่อนส่ง SMS'}
+                    : 'ลูกค้าไม่มีเบอร์โทรศัพท์ (ไม่สามารถส่ง SMS ได้)'}
                 </span>
               </div>
             </div>
@@ -1056,7 +1071,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleSendCustomerSms(false)}
-                disabled={isSendingSms || !cleanSmsPhone(job.customer.phone)}
+                disabled={isSendingSms || !hasCustomerPhone(job.customer) || !cleanSmsPhone(job.customer.phone)}
                 className="flex-1 py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {isSendingSms ? (
@@ -1071,7 +1086,7 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
             <button
               type="button"
               onClick={() => handleSendCustomerSms(true)}
-              disabled={isSendingSms || !cleanSmsPhone(job.customer.phone)}
+              disabled={isSendingSms || !hasCustomerPhone(job.customer) || !cleanSmsPhone(job.customer.phone)}
               className={`${
                 isSmsGatewayConfigured(settings.smsNotify)
                   ? 'py-2 px-3 bg-white hover:bg-sky-100 text-sky-800 border border-sky-300'
